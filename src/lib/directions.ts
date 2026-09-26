@@ -38,19 +38,30 @@ function getMapboxToken(): Promise<string> {
 export async function fetchRoutes(
   from: LatLng,
   to: LatLng,
-  opts: { avoidTolls?: boolean; signal?: AbortSignal } = {}
+  opts: {
+    avoidTolls?: boolean;
+    signal?: AbortSignal;
+    /** Road points to route around (Mapbox allows at most 50). */
+    avoidPoints?: LatLng[];
+    alternatives?: boolean;
+  } = {}
 ): Promise<RouteOption[]> {
   const token = await getMapboxToken();
   if (!token.startsWith("pk.")) throw new Error("Couldn't load the Mapbox settings. Check your connection and try again.");
   const coords = `${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
   const params = new URLSearchParams({
-    alternatives: "true",
+    alternatives: opts.alternatives === false ? "false" : "true",
     geometries: "geojson",
     overview: "full",
     steps: "true", // needed to spot toll roads (intersection classes)
     access_token: token,
   });
-  if (opts.avoidTolls) params.set("exclude", "toll");
+  const exclude: string[] = [];
+  if (opts.avoidTolls) exclude.push("toll");
+  for (const p of (opts.avoidPoints ?? []).slice(0, 50)) {
+    exclude.push(`point(${p.longitude.toFixed(6)} ${p.latitude.toFixed(6)})`);
+  }
+  if (exclude.length) params.set("exclude", exclude.join(","));
   const res = await fetch(
     `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coords}?${params}`,
     { signal: opts.signal }

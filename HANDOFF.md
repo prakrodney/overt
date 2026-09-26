@@ -57,6 +57,11 @@ Supabase project "prakrodney@gmail.com's Project" (ref xghyzucbbzfdzqrjoyvf, us-
  └─ Edge function import-osm (only used to load the US boundary now; legacy importer)
 ```
 
+- **Fewer-cameras detour** (`src/lib/fewerCameras.ts`): when every Mapbox route passes ≥1
+  camera, re-request with `exclude=point(lon lat)` for those cameras (≤50, up to 4
+  iterations), add the result as an extra "Detour" card if it passes fewer cameras and
+  takes ≤ 2× the fastest + 10 min. Counting is direction-aware: a camera with a known
+  facing counts only if the route segment is within 50° of its view axis.
 - **Route camera counting happens on the phone.** The app sends only coarse boxes, never the
   route. A camera counts if it's within **30 m** of the route line (`src/lib/routeCameras.ts`).
 - **Clustering is server-side:** `ST_SnapToGrid` with ~60 pt cells below zoom 15, individual

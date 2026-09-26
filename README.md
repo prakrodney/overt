@@ -67,7 +67,12 @@ token locally, put `EXPO_PUBLIC_MAPBOX_TOKEN=pk....` in `.env.local` (see `.env.
 git ignores it). Cameras along each route are counted **on
 the phone**: the app asks Supabase for the cameras inside a few coarse ~20 km boxes around
 the routes (`get_cameras_in_boxes`) and measures which are within 30 m of each line. The
-route itself is never sent to Overt's server. Turn-by-turn navigation needs the Mapbox
+route itself is never sent to Overt's server. A camera with a known facing only counts
+when the route runs along its view (within 50° of that axis), so an overpass camera looking
+across a freeway doesn't count for the freeway. If every route passes a camera, the app
+asks Mapbox for a **detour** that routes around those cameras (`exclude=point(...)`, up to
+50 points, up to 4 tries) and adds it as an extra card when it passes fewer
+(`src/lib/fewerCameras.ts`). Turn-by-turn navigation needs the Mapbox
 Navigation SDK, which can't run inside Expo Go, so **Start** shows a note for now.
 
 ## Community reports

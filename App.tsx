@@ -23,7 +23,8 @@ import { Txt } from "./src/components/Txt";
 import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoint } from "./src/lib/cameras";
 import type { Place } from "./src/lib/geocode";
 import { fetchRoutes, type RouteOption } from "./src/lib/directions";
-import { camerasAlongRoutes } from "./src/lib/routeCameras";
+import { camerasAlongRoutesDetailed } from "./src/lib/routeCameras";
+import { findFewerCamerasRoute } from "./src/lib/fewerCameras";
 import { reportNewPoint } from "./src/lib/reports";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
 import { useTheme } from "./src/theme";
@@ -72,6 +73,7 @@ function MapScreen() {
   const [avoidTolls, setAvoidTolls] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [searchingFewer, setSearchingFewer] = useState(false);
   const routeAbortRef = useRef<AbortController | null>(null);
 
   // Report flow + toasts
@@ -244,8 +246,25 @@ function MapScreen() {
         fitRoutes(rs);
         setRouteLoading(false);
         // Count cameras along each route on the device (routes never go to our server).
-        camerasAlongRoutes(rs, ctrl.signal)
-          .then((ids) => !ctrl.signal.aborted && setRouteCounts(ids.map((x) => x.length)))
+        // If every route passes a camera, look for a detour that passes fewer.
+        const fromLL = { latitude: from.lat, longitude: from.lon };
+        const toLL = { latitude: place.lat, longitude: place.lon };
+        camerasAlongRoutesDetailed(rs, ctrl.signal)
+          .then(async (cams) => {
+            if (ctrl.signal.aborted) return;
+            const counts = cams.map((x) => x.length);
+            setRouteCounts(counts);
+            if (Math.min(...counts) === 0) return;
+            setSearchingFewer(true);
+            const fewer = await findFewerCamerasRoute(fromLL, toLL, rs, cams, {
+              avoidTolls: tolls,
+              signal: ctrl.signal,
+            }).finally(() => setSearchingFewer(false));
+            if (fewer && !ctrl.signal.aborted) {
+              setRoutes([...rs, fewer.route]);
+              setRouteCounts([...counts, fewer.cameras]);
+            }
+          })
           .catch((e) => e?.name !== "AbortError" && setCountError("Couldn't count cameras on these routes."));
       } catch (e: any) {
         if (e?.name === "AbortError") return;
@@ -540,6 +559,7 @@ function MapScreen() {
           }}
           loading={routeLoading}
           error={routeError}
+          searchingFewer={searchingFewer}
         />
       ) : searchPin && !selected ? (
         <PlaceSheet

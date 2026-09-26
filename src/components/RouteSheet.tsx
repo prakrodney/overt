@@ -60,6 +60,7 @@ export function RouteSheet({
   onToggleTolls,
   loading,
   error,
+  searchingFewer = false,
 }: {
   theme: T;
   routes: RouteOption[];
@@ -71,6 +72,8 @@ export function RouteSheet({
   onToggleTolls: () => void;
   loading: boolean;
   error: string | null;
+  /** True while looking for a detour that passes fewer cameras. */
+  searchingFewer?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [startNote, setStartNote] = useState(false);
@@ -112,6 +115,12 @@ export function RouteSheet({
       </View>
 
       {error ? <Txt style={{ color: theme.badText, fontSize: 14 }}>{error}</Txt> : null}
+      {searchingFewer ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ActivityIndicator size="small" color={theme.textSecondary} />
+          <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>Looking for a route with fewer cameras…</Txt>
+        </View>
+      ) : null}
       {countError ? (
         <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>{countError}</Txt>
       ) : null}
@@ -124,7 +133,12 @@ export function RouteSheet({
         <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ gap: 12 }}>
           {routes.map((r, i) => {
             const isSel = i === selected;
-            const meta = [formatMiles(r.distanceM), r.hasToll ? "Toll road" : null, cameraText(counts?.[i])]
+            const meta = [
+              r.id === "fewest" ? "Detour" : null,
+              formatMiles(r.distanceM),
+              r.hasToll ? "Toll road" : null,
+              cameraText(counts?.[i]),
+            ]
               .filter(Boolean)
               .join(" · ");
             return (

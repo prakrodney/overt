@@ -9,7 +9,7 @@ import type { LatLng, RouteOption } from "./directions";
 /** A camera counts as "on the route" within this many metres of the line. */
 export const ON_ROUTE_METERS = 30;
 
-type Cam = { id: number; lat: number; lon: number };
+export type Cam = { id: number; lat: number; lon: number; dir: number | null };
 
 const BOX_DEG = 0.18; // ~20 km
 
@@ -37,8 +37,29 @@ async function fetchCorridorCameras(routes: RouteOption[], signal?: AbortSignal)
   });
   if (!res.ok) throw new Error(`Camera lookup failed (${res.status})`);
   const rows = (await res.json()) as [number, number, number, number | null][];
-  return rows.map(([id, lat, lon]) => ({ id, lat, lon }));
+  return rows.map(([id, lat, lon, dir]) => ({ id, lat, lon, dir }));
 }
+
+/** Compass bearing (0 = north) of travel from A to B. */
+function bearing(a: LatLng, b: LatLng) {
+  const k = Math.cos((a.latitude * Math.PI) / 180);
+  const dx = (b.longitude - a.longitude) * k;
+  const dy = b.latitude - a.latitude;
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+}
+
+/** Smallest angle between two lines (0–90°), ignoring which way along the line. */
+function axisDiff(a: number, b: number) {
+  const d = Math.abs(((a - b) % 180) + 180) % 180;
+  return Math.min(d, 180 - d);
+}
+
+/**
+ * A camera that faces a known direction reads plates on traffic moving along that
+ * axis (toward it or away from it). A road crossing its view at a steep angle, like a
+ * freeway passing under an overpass camera, isn't what it watches.
+ */
+export const MAX_AXIS_DIFF = 50;
 
 /** Metres from point P to segment AB, using a local flat projection (fine at these scales). */
 function distToSegment(p: LatLng, a: LatLng, b: LatLng) {
@@ -57,6 +78,14 @@ export async function camerasAlongRoutes(
   routes: RouteOption[],
   signal?: AbortSignal
 ): Promise<number[][]> {
+  return (await camerasAlongRoutesDetailed(routes, signal)).map((cs) => cs.map((c) => c.id));
+}
+
+/** Like camerasAlongRoutes, but returns the cameras themselves (id + position). */
+export async function camerasAlongRoutesDetailed(
+  routes: RouteOption[],
+  signal?: AbortSignal
+): Promise<Cam[][]> {
   const cams = await fetchCorridorCameras(routes, signal);
 
   // Bucket cameras into ~1 km cells so each segment only checks its neighbours.
@@ -68,7 +97,7 @@ export async function camerasAlongRoutes(
   }
 
   return routes.map((r) => {
-    const hit = new Set<number>();
+    const hit = new Map<number, Cam>();
     for (let i = 1; i < r.coords.length; i++) {
       const a = r.coords[i - 1], b = r.coords[i];
       const x0 = Math.floor(Math.min(a.longitude, b.longitude) / CELL) - 1;
@@ -79,13 +108,16 @@ export async function camerasAlongRoutes(
         for (let y = y0; y <= y1; y++) {
           for (const c of grid.get(`${x}:${y}`) ?? []) {
             if (hit.has(c.id)) continue;
-            if (distToSegment({ latitude: c.lat, longitude: c.lon }, a, b) <= ON_ROUTE_METERS) {
-              hit.add(c.id);
+            if (distToSegment({ latitude: c.lat, longitude: c.lon }, a, b) > ON_ROUTE_METERS) continue;
+            if (c.dir != null) {
+              const len = Math.hypot(b.latitude - a.latitude, b.longitude - a.longitude);
+              if (len > 1e-7 && axisDiff(bearing(a, b), c.dir) > MAX_AXIS_DIFF) continue;
             }
+            hit.set(c.id, c);
           }
         }
       }
     }
-    return [...hit];
+    return [...hit.values()];
   });
 }
