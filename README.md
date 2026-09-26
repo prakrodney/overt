@@ -14,6 +14,7 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Tap a marker for a bottom sheet (type, approximate location, facing, source, last updated) | `src/components/CameraSheet.tsx` |
 | Search bar with a free geocoder ([Photon](https://photon.komoot.io), OpenStreetMap data) | `src/components/SearchBar.tsx`, `src/lib/geocode.ts` |
 | Colors and type (Figtree) from the Overt screen designs | `src/theme.ts` |
+| Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone
 
@@ -56,6 +57,18 @@ Developers: `npm install`, then `npx expo start --go`.
 - **Facing:** parsed from `direction` / `camera:direction` (degrees, compass points like
   `NE`, ranges like `45-90`, or several values like `0;180`).
 
+## Route previews and privacy
+
+Routes come from the Mapbox Directions API (`driving-traffic`, with alternatives). The
+Mapbox **public** (`pk.`) token is not stored in this repo: the app loads it at runtime from
+Supabase (`get_public_config`, backed by `private.public_client_config`). To use a different
+token locally, put `EXPO_PUBLIC_MAPBOX_TOKEN=pk....` in `.env.local` (see `.env.example`;
+git ignores it). Cameras along each route are counted **on
+the phone**: the app asks Supabase for the cameras inside a few coarse ~20 km boxes around
+the routes (`get_cameras_in_boxes`) and measures which are within 30 m of each line. The
+route itself is never sent to Overt's server. Turn-by-turn navigation needs the Mapbox
+Navigation SDK, which can't run inside Expo Go, so **Start** shows a note for now.
+
 ## Project layout
 
 ```
@@ -71,6 +84,6 @@ scripts/                     Windows helpers used by the .bat files
 
 ## Not in this milestone
 
-Turn-by-turn navigation, route ALPR counts, reporting and confirming, accounts and
-payments are planned for later milestones (see the product plan). Search uses Photon
+Turn-by-turn navigation, reporting and confirming, accounts and payments are planned for
+later milestones (see the product plan). Search uses Photon
 for now; the plan swaps in Mapbox Search before launch.

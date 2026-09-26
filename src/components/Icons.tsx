@@ -63,3 +63,48 @@ export function CameraGlyph({ size = 11, color }: { size?: number; color: string
     </Svg>
   );
 }
+
+export function BackIcon({ size = 20, color, strokeWidth = 2.2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M15 5l-7 7 7 7" />
+    </Svg>
+  );
+}
+
+export function DirectionsIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <Path d="M20 4L4 11l7 2 2 7 7-16z" />
+    </Svg>
+  );
+}
+
+export function TollIcon({ size = 16, color, strokeWidth = 2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M4 20V5h16v15" />
+      <Path d="M4 9h16" />
+      <Path d="M12 12v5" />
+    </Svg>
+  );
+}
+
+export function WarnIcon({ size = 14, color, strokeWidth = 2.4 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 4l9 16H3z" />
+      <Path d="M12 10v4" />
+      <Path d="M12 17.5v.5" />
+    </Svg>
+  );
+}
+
+export function CameraFilledIcon({ size = 14, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <Rect x={3} y={7} width={12} height={10} rx={2} />
+      <Path d="M16 10.5l5-3v9l-5-3z" />
+    </Svg>
+  );
+}

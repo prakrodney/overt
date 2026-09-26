@@ -34,6 +34,20 @@ if (-not (Test-Path ".git")) {
   git reset -q
   Add-Content ".git/info/exclude" "scripts/overt.bundle"
   git remote add origin https://github.com/prakrodney/overt.git
+} else {
+  # Later runs: adopt the newer history Claude sent in the bundle. Your files
+  # already match it; this only updates the history, never your files.
+  git fetch -q "scripts/overt.bundle" "+main:refs/overt/bundle"
+  git merge-base --is-ancestor HEAD refs/overt/bundle
+  if ($LASTEXITCODE -eq 0) {
+    git reset -q refs/overt/bundle
+  } else {
+    # The bundle replaced commits that never reached GitHub (for example to
+    # remove a token). Accept it as long as it builds on what GitHub has.
+    git fetch -q origin main
+    git merge-base --is-ancestor origin/main refs/overt/bundle
+    if ($LASTEXITCODE -eq 0) { git reset -q refs/overt/bundle }
+  }
 }
 if (-not (git config user.name)) { git config user.name "rodney" }
 if (-not (git config user.email)) { git config user.email "334100603+prakrodney@users.noreply.github.com" }

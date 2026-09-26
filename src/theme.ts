@@ -27,6 +27,19 @@ const light = {
   selectHalo: "rgba(74,79,214,0.14)",
   shadowColor: "#1B1D22",
   shadowOpacity: 0.14,
+  // Route preview (Route board)
+  route: "#4A4FD6",
+  routeAlt: "#A3A8B4",
+  routeCasing: "#FFFFFF",
+  routeCardSelectedBg: "#F6F6FE",
+  destination: "#1B1D22",
+  destinationInner: "#FFFFFF",
+  goodBg: "#E3F3E9",
+  goodText: "#17663A",
+  mixedBg: "#FFF0D1",
+  mixedText: "#7A4E00",
+  badBg: "#FCE6E4",
+  badText: "#A3231B",
 };
 
 const dark: typeof light = {
@@ -55,6 +68,18 @@ const dark: typeof light = {
   selectHalo: "rgba(123,128,255,0.18)",
   shadowColor: "#000000",
   shadowOpacity: 0.4,
+  route: "#7B80FF",
+  routeAlt: "#5E636D",
+  routeCasing: "#1B1D21",
+  routeCardSelectedBg: "#25274A",
+  destination: "#F2F3F5",
+  destinationInner: "#1B1D21",
+  goodBg: "#183826",
+  goodText: "#7FE0A6",
+  mixedBg: "#3A2E14",
+  mixedText: "#F5C76A",
+  badBg: "#43201D",
+  badText: "#FF9A91",
 };
 
 export type Theme = typeof light;

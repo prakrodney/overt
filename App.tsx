@@ -10,15 +10,19 @@ import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
-import MapView, { Marker, type Region } from "react-native-maps";
+import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
 import { LocateIcon } from "./src/components/Icons";
+import { PlaceSheet } from "./src/components/PlaceSheet";
+import { RouteHeader, RouteSheet } from "./src/components/RouteSheet";
 import { SearchBar } from "./src/components/SearchBar";
 import { Txt } from "./src/components/Txt";
 import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoint } from "./src/lib/cameras";
 import type { Place } from "./src/lib/geocode";
+import { fetchRoutes, type RouteOption } from "./src/lib/directions";
+import { camerasAlongRoutes } from "./src/lib/routeCameras";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
 import { useTheme } from "./src/theme";
 
@@ -57,6 +61,16 @@ function MapScreen() {
   const [locationDenied, setLocationDenied] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Route preview state
+  const [routes, setRoutes] = useState<RouteOption[] | null>(null);
+  const [routeCounts, setRouteCounts] = useState<number[] | null>(null);
+  const [countError, setCountError] = useState<string | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState(0);
+  const [avoidTolls, setAvoidTolls] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const routeAbortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const zoom = useMemo(() => zoomForRegion(region, width), [region, width]);
@@ -156,6 +170,8 @@ function MapScreen() {
 
   const goToPlace = useCallback((place: Place) => {
     setSelected(null);
+    setRoutes(null);
+    setRouteError(null);
     setSearchPin(place);
     if (place.extent) {
       const [minLon, maxLat, maxLon, minLat] = place.extent;
@@ -164,16 +180,77 @@ function MapScreen() {
           { latitude: minLat, longitude: minLon },
           { latitude: maxLat, longitude: maxLon },
         ],
-        { edgePadding: { top: 160, bottom: 80, left: 40, right: 40 }, animated: true }
+        { edgePadding: { top: 160, bottom: 260, left: 40, right: 40 }, animated: true }
       );
     } else {
       mapRef.current?.animateToRegion(
-        { latitude: place.lat, longitude: place.lon, latitudeDelta: 0.012, longitudeDelta: 0.012 },
+        { latitude: place.lat - 0.002, longitude: place.lon, latitudeDelta: 0.012, longitudeDelta: 0.012 },
         600
       );
     }
   }, []);
 
+  // ---- Route preview ----------------------------------------------------------
+  const fitRoutes = useCallback((rs: RouteOption[]) => {
+    const all = rs.flatMap((r) => r.coords);
+    if (!all.length) return;
+    mapRef.current?.fitToCoordinates(all, {
+      edgePadding: { top: 150, bottom: 460, left: 50, right: 50 },
+      animated: true,
+    });
+  }, []);
+
+  const loadRoutes = useCallback(
+    async (place: Place, tolls: boolean) => {
+      routeAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      routeAbortRef.current = ctrl;
+      setRouteLoading(true);
+      setRouteError(null);
+      setRouteCounts(null);
+      setCountError(null);
+      try {
+        let from = userLoc;
+        if (!from) {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== "granted") throw new Error("Turn on location for Expo Go to get directions from where you are.");
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          from = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          setUserLoc(from);
+        }
+        const rs = await fetchRoutes(
+          { latitude: from.lat, longitude: from.lon },
+          { latitude: place.lat, longitude: place.lon },
+          { avoidTolls: tolls, signal: ctrl.signal }
+        );
+        if (ctrl.signal.aborted) return;
+        setRoutes(rs);
+        setSelectedRoute(0);
+        setSelected(null);
+        fitRoutes(rs);
+        setRouteLoading(false);
+        // Count cameras along each route on the device (routes never go to our server).
+        camerasAlongRoutes(rs, ctrl.signal)
+          .then((ids) => !ctrl.signal.aborted && setRouteCounts(ids.map((x) => x.length)))
+          .catch((e) => e?.name !== "AbortError" && setCountError("Couldn't count cameras on these routes."));
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setRouteLoading(false);
+        setRouteError(e?.message ?? "Couldn't get directions. Check your connection.");
+      }
+    },
+    [userLoc, fitRoutes]
+  );
+
+  const exitRoutes = useCallback(() => {
+    routeAbortRef.current?.abort();
+    setRoutes(null);
+    setRouteCounts(null);
+    setRouteError(null);
+    setRouteLoading(false);
+  }, []);
+
+  const inRouteMode = routes !== null;
   const showCones = zoom >= 13;
   const shadow = {
     shadowColor: theme.shadowColor,
@@ -203,7 +280,7 @@ function MapScreen() {
         mapType="mutedStandard"
         userInterfaceStyle={theme.isDark ? "dark" : "light"}
         tintColor={theme.accent}
-        legalLabelInsets={{ top: 0, right: 0, left: 12, bottom: selected ? 0 : insets.bottom }}
+        legalLabelInsets={{ top: 0, right: 0, left: 12, bottom: selected || searchPin ? 0 : insets.bottom }}
       >
         {showCones ? (
           <DirectionCones points={layer.points} selectedId={selected?.id ?? null} zoom={zoom} theme={theme} />
@@ -220,18 +297,83 @@ function MapScreen() {
             onPress={selectPoint}
           />
         ))}
+        {routes
+          ? // Unselected routes first (grey), the selected one on top (accent), each with a casing.
+            routes
+              .map((r, i) => ({ r, i }))
+              .sort((a, b) => (a.i === selectedRoute ? 1 : 0) - (b.i === selectedRoute ? 1 : 0))
+              .flatMap(({ r, i }) => {
+                const sel = i === selectedRoute;
+                return [
+                  <Polyline
+                    key={`${r.id}-casing-${sel}`}
+                    coordinates={r.coords}
+                    strokeColor={theme.routeCasing}
+                    strokeWidth={sel ? 10 : 8}
+                    lineCap="round"
+                    lineJoin="round"
+                    zIndex={sel ? 20 : 10}
+                  />,
+                  <Polyline
+                    key={`${r.id}-line-${sel}`}
+                    coordinates={r.coords}
+                    strokeColor={sel ? theme.route : theme.routeAlt}
+                    strokeWidth={sel ? 6 : 5}
+                    lineCap="round"
+                    lineJoin="round"
+                    zIndex={sel ? 21 : 11}
+                    tappable
+                    onPress={() => setSelectedRoute(i)}
+                  />,
+                ];
+              })
+          : null}
         {searchPin ? (
           <Marker
+            key={`dest-${theme.isDark ? "d" : "l"}`}
             coordinate={{ latitude: searchPin.lat, longitude: searchPin.lon }}
-            title={searchPin.name}
-            description={searchPin.subtitle}
-            pinColor={theme.accent}
-          />
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={false}
+            zIndex={900}
+            accessibilityLabel={searchPin.name}
+          >
+            <View style={{ alignItems: "center" }}>
+              <View
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: theme.destination,
+                  borderWidth: 2,
+                  borderColor: theme.destinationInner,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.destinationInner }} />
+              </View>
+              <View
+                style={{
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: 6,
+                  borderRightWidth: 6,
+                  borderTopWidth: 9,
+                  borderLeftColor: "transparent",
+                  borderRightColor: "transparent",
+                  borderTopColor: theme.destination,
+                  marginTop: -2,
+                }}
+              />
+            </View>
+          </Marker>
         ) : null}
       </MapView>
 
       {/* Recenter */}
-      <View style={[styles.controls, { top: insets.top + 74, backgroundColor: theme.control }, shadow]}>
+      <View
+        style={[styles.controls, { top: insets.top + (inRouteMode ? 112 : 74), backgroundColor: theme.control }, shadow]}
+      >
         <Pressable
           onPress={() => flyToUser(true)}
           accessibilityRole="button"
@@ -242,14 +384,21 @@ function MapScreen() {
         </Pressable>
       </View>
 
-      {/* Search */}
+      {/* Search, or the from/to card while previewing routes */}
       <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
-        <SearchBar
-          theme={theme}
-          near={userLoc ?? { lat: region.latitude, lon: region.longitude }}
-          onSelect={goToPlace}
-          onClear={() => setSearchPin(null)}
-        />
+        {inRouteMode && searchPin ? (
+          <RouteHeader theme={theme} destination={searchPin.name} onBack={exitRoutes} />
+        ) : (
+          <SearchBar
+            theme={theme}
+            near={userLoc ?? { lat: region.latitude, lon: region.longitude }}
+            onSelect={goToPlace}
+            onClear={() => {
+              setSearchPin(null);
+              setRouteError(null);
+            }}
+          />
+        )}
         {loadError ? (
           <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
             <Txt weight="medium" style={{ color: theme.text, fontSize: 14 }}>
@@ -267,12 +416,45 @@ function MapScreen() {
       </View>
 
       {/* ODbL attribution */}
-      {!selected ? (
+      {!selected && !searchPin && !inRouteMode ? (
         <View style={[styles.attribution, { bottom: insets.bottom + 4 }]} pointerEvents="none">
           <Txt style={{ fontSize: 10, color: theme.textSecondary }}>Camera data © OpenStreetMap contributors</Txt>
         </View>
       ) : null}
 
+      {inRouteMode ? (
+        <RouteSheet
+          theme={theme}
+          routes={routes ?? []}
+          counts={routeCounts}
+          countError={countError}
+          selected={selectedRoute}
+          onSelect={(i) => setSelectedRoute(i)}
+          avoidTolls={avoidTolls}
+          onToggleTolls={() => {
+            const next = !avoidTolls;
+            setAvoidTolls(next);
+            if (searchPin) loadRoutes(searchPin, next);
+          }}
+          loading={routeLoading}
+          error={routeError}
+        />
+      ) : searchPin && !selected ? (
+        <PlaceSheet
+          place={searchPin}
+          from={userLoc}
+          theme={theme}
+          loading={routeLoading}
+          error={routeError}
+          onDirections={() => loadRoutes(searchPin, avoidTolls)}
+          onClose={() => {
+            setSearchPin(null);
+            setRouteError(null);
+          }}
+        />
+      ) : null}
+
+      {/* Camera details sit above everything else, including route previews. */}
       <CameraSheet point={selected} theme={theme} onClose={() => setSelected(null)} />
     </View>
   );
