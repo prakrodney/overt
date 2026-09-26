@@ -113,7 +113,7 @@ over 12 months. Score ≥ 70 is Verified, 40–69 Community reported, < 40 Needs
 2+ independent "gone" votes that outweigh confirmations archive the point. Reporter trust
 rises when others confirm their reports and falls when they're voted gone.
 
-**Migrations** live in `supabase/migrations/20260926000001…09`, all applied to the live
+**Migrations** live in `supabase/migrations/20260926000001…10`, all applied to the live
 project. Note: some one-off SQL was also run directly (setting `import_config.function_url`,
 the ad-hoc first-import helpers that migration 6 dropped, inserting the Mapbox token). The live
 database therefore matches the migration files plus that data.
@@ -147,7 +147,17 @@ were tested, and the reporting SQL was tested in a rolled-back transaction (dist
 repeat vote, confirm → verified, 2× gone → archived, duplicate report merged, trust drops,
 moderation queue).
 
-## 5. In progress (when this handoff was written)
+## 5. Report + confirm loop (status)
+
+**Update:** the app side is now wired: Still there / Report an issue (ActionSheet: gone,
+wrong spot, wrong details) on the camera sheet with "Last verified" and "Confirmations" rows;
+**Report** pill button + long-press → placement pin at map centre → ReportSheet (type, optional
+facing) → `report_new_point`; toasts; the map reloads after changes. Type-checked, iOS bundle
+builds, sheets screenshotted in light/dark. Anonymous sign-ins were turned on 2026-09-26 ~09:35 UTC and the full REST path
+(sign up → vote_on_point) was verified; migration 0010 made "too far" messages use ft/miles.
+Next: test on the phone near a real camera.
+
+### Original notes
 
 **Feature: report + confirm loop.** The backend is done and live (migration 9). The frontend is
 partly written and **not wired into the UI yet**:
@@ -157,7 +167,7 @@ partly written and **not wired into the UI yet**:
   location to send for the 300 m check.
 - `expo-secure-store` was added to package.json and app.json plugins.
 
-**Blocker:** anonymous sign-ins are **disabled** in the Supabase project (the auth signup
+**(Resolved)** anonymous sign-ins were **disabled** in the Supabase project (the auth signup
 returned `anonymous_provider_disabled`). The owner was asked to turn it on under Supabase
 Dashboard → Authentication → Sign In / Providers → **Allow anonymous sign-ins** → Save. He hasn't
 confirmed yet. The MCP connector can't change auth settings. Check it with:
@@ -165,8 +175,9 @@ confirmed yet. The MCP connector can't change auth settings. Check it with:
 
 ## 6. Exact next steps
 
-1. **Confirm anonymous sign-ins are on** (curl above should return an access_token).
-2. **Wire up the camera sheet** (`src/components/CameraSheet.tsx`), matching the Marker board:
+1. **Confirm anonymous sign-ins are on** (curl above should return an access_token), then
+   test on the phone near a real camera.
+2. ~~Wire up the camera sheet~~ (done) (`src/components/CameraSheet.tsx`), matching the Marker board:
    - add rows "Last verified" (from `last_verified_at`) and "Confirmations" ("N people", from
      `confirm_count`; add `confirm_count` to the `CameraPoint` type in `src/lib/cameras.ts`);
    - add a two-button row at the bottom: **Still there** (primary, accent) and **Report an issue**
@@ -175,7 +186,7 @@ confirmed yet. The MCP connector can't change auth settings. Check it with:
      `reportIssue`;
    - show a success/error toast with the server's message (the SQL raises friendly text); after
      a vote, refresh the camera layer and update the badge.
-3. **Report flow** (plan: 3 taps): a **Report** pill button (design: bottom-right, white,
+3. ~~Report flow~~ (done) (plan: 3 taps): a **Report** pill button (design: bottom-right, white,
    "＋ Report") plus long-press on the map. It enters placing mode: a fixed center crosshair pin,
    a banner "Move the map to place the camera", and a sheet with type (ALPR), optional facing
    chips (N…NW / Not sure) and **Submit** → `reportNewPoint(center.lat, center.lon, dir)`. On

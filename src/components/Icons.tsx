@@ -108,3 +108,11 @@ export function CameraFilledIcon({ size = 14, color }: { size?: number; color: s
     </Svg>
   );
 }
+
+export function PlusIcon({ size = 20, color, strokeWidth = 2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round">
+      <Path d="M12 5v14M5 12h14" />
+    </Svg>
+  );
+}

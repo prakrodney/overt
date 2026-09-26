@@ -14,6 +14,7 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Tap a marker for a bottom sheet (type, approximate location, facing, source, last updated) | `src/components/CameraSheet.tsx` |
 | Search bar with a free geocoder ([Photon](https://photon.komoot.io), OpenStreetMap data) | `src/components/SearchBar.tsx`, `src/lib/geocode.ts` |
 | Colors and type (Figtree) from the Overt screen designs | `src/theme.ts` |
+| Report + confirm: **Report** button or long-press the map to add a camera; **Still there** / **Report an issue** on each camera (anonymous account, within 300 m) | `src/components/ReportSheet.tsx`, `src/components/CameraSheet.tsx`, `src/lib/reports.ts`, `src/lib/auth.ts` |
 | Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone
@@ -69,6 +70,17 @@ the routes (`get_cameras_in_boxes`) and measures which are within 30 m of each l
 route itself is never sent to Overt's server. Turn-by-turn navigation needs the Mapbox
 Navigation SDK, which can't run inside Expo Go, so **Start** shows a note for now.
 
+## Community reports
+
+Each phone signs in with an anonymous Supabase account (Supabase → Authentication → **Allow
+anonymous sign-ins** must be on). People can confirm a camera (**Still there**), say it's
+gone, flag wrong location/details, or report new equipment. The server checks you're within
+300 m (your location is used for that check only; the report stores the camera's location),
+allows one vote per camera per day, and caps new reports at 10/day. Confidence and reporter
+trust are recomputed on every vote (`private.recompute_confidence`). Review flagged reports
+in the SQL editor: `select * from private.moderation_queue;` then
+`select private.moderate_report(<id>, 'accepted' | 'rejected');`.
+
 ## Project layout
 
 ```
@@ -84,6 +96,6 @@ scripts/                     Windows helpers used by the .bat files
 
 ## Not in this milestone
 
-Turn-by-turn navigation, reporting and confirming, accounts and payments are planned for
-later milestones (see the product plan). Search uses Photon
+Turn-by-turn navigation (and the post-trip "Still there?" prompt), Sign in with Apple and
+payments are planned for later milestones (see the product plan). Search uses Photon
 for now; the plan swaps in Mapbox Search before launch.

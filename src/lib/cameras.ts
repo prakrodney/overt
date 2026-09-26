@@ -16,6 +16,7 @@ export type CameraPoint = {
   osm_id: number | null;
   updated_at: string | null;
   last_verified_at: string | null;
+  confirm_count?: number;
 };
 
 export type CameraCluster = {

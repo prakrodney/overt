@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
+import { ActionSheetIOS, ActivityIndicator, Animated, Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CameraPoint } from "../lib/cameras";
 import { describeLocation } from "../lib/geocode";
 import { formatFacing, formatUpdated } from "../lib/geo";
+import { reportIssue, voteOnPoint } from "../lib/reports";
 import type { Theme } from "../theme";
 import { CheckIcon, CloseIcon, InfoIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -48,15 +49,20 @@ export function CameraSheet({
   point,
   theme,
   onClose,
+  onChanged,
 }: {
   point: CameraPoint | null;
   theme: T;
   onClose: () => void;
+  /** Called after a vote changes the camera, so the map can reload. */
+  onChanged?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(600)).current;
   const [shown, setShown] = useState<CameraPoint | null>(point);
   const [place, setPlace] = useState<string | null>(null);
+  const [busy, setBusy] = useState<null | "confirm" | "issue">(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -64,6 +70,8 @@ export function CameraSheet({
   useEffect(() => {
     if (point) {
       setShown(point);
+      setMessage(null);
+      setBusy(null);
       Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 220 }).start();
     } else {
       Animated.timing(translateY, { toValue: 600, duration: 200, useNativeDriver: true }).start(() =>
@@ -95,6 +103,59 @@ export function CameraSheet({
 
   if (!shown) return null;
   const p = shown;
+
+  const vote = async (verdict: "confirm" | "gone") => {
+    setBusy(verdict === "confirm" ? "confirm" : "issue");
+    setMessage(null);
+    try {
+      const r = await voteOnPoint(p.id, verdict);
+      setShown({ ...p, confidence_level: r.confidence_level as CameraPoint["confidence_level"], confirm_count: r.confirm_count,
+                 last_verified_at: verdict === "confirm" ? new Date().toISOString() : p.last_verified_at });
+      setMessage({
+        ok: true,
+        text:
+          r.status === "archived"
+            ? "Thanks. Enough people said it's gone, so it's been taken off the map."
+            : verdict === "confirm"
+              ? "Thanks for confirming. That keeps the map accurate for everyone."
+              : "Thanks. If others agree it's gone, it will come off the map.",
+      });
+      onChanged?.();
+    } catch (e: any) {
+      setMessage({ ok: false, text: e?.message ?? "Something went wrong. Try again." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const flag = async (kind: "wrong_location" | "details_wrong") => {
+    setBusy("issue");
+    setMessage(null);
+    try {
+      await reportIssue(p.id, kind);
+      setMessage({ ok: true, text: "Thanks. We'll review it." });
+    } catch (e: any) {
+      setMessage({ ok: false, text: e?.message ?? "Something went wrong. Try again." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openIssueMenu = () =>
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: "What's wrong?",
+        options: ["It's gone", "It's in the wrong spot", "The details are wrong", "Cancel"],
+        destructiveButtonIndex: 0,
+        cancelButtonIndex: 3,
+        userInterfaceStyle: theme.isDark ? "dark" : "light",
+      },
+      (i) => {
+        if (i === 0) vote("gone");
+        else if (i === 1) flag("wrong_location");
+        else if (i === 2) flag("details_wrong");
+      }
+    );
   const coords = `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
   const osmUrl = p.osm_type && p.osm_id ? `https://www.openstreetmap.org/${p.osm_type}/${p.osm_id}` : null;
   const verified = p.confidence_level === "verified";
@@ -146,20 +207,62 @@ export function CameraSheet({
         <Row label="Location" value={`${place ?? coords} (approx.)`} theme={theme} />
         <Row label="Facing" value={formatFacing(p.directions)} theme={theme} />
         {p.operator ? <Row label="Operator" value={p.operator} theme={theme} /> : null}
+        {p.last_verified_at ? (
+          <Row label="Last verified" value={formatUpdated(p.last_verified_at)} theme={theme} />
+        ) : (
+          <Row label="Last updated" value={formatUpdated(p.updated_at)} theme={theme} />
+        )}
         <Row label="Source" value={sourceLabel(p)} theme={theme} />
-        <Row label="Last updated" value={formatUpdated(p.updated_at)} theme={theme} last />
+        <Row
+          label="Confirmations"
+          value={p.confirm_count ? (p.confirm_count === 1 ? "1 person" : `${p.confirm_count} people`) : "None yet"}
+          theme={theme}
+          last
+        />
+      </View>
+
+      {message ? (
+        <Txt style={{ fontSize: 14, color: message.ok ? theme.goodText : theme.badText }}>{message.text}</Txt>
+      ) : null}
+
+      <View style={styles.actions}>
+        <Pressable
+          onPress={() => vote("confirm")}
+          disabled={busy !== null}
+          accessibilityRole="button"
+          accessibilityHint="Confirms this camera is still here. You need to be within 300 metres."
+          style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.accent, opacity: pressed || busy ? 0.8 : 1 }]}
+        >
+          {busy === "confirm" ? (
+            <ActivityIndicator color={theme.onAccent} />
+          ) : (
+            <Txt weight="bold" style={{ color: theme.onAccent, fontSize: 16 }}>
+              Still there
+            </Txt>
+          )}
+        </Pressable>
+        <Pressable
+          onPress={openIssueMenu}
+          disabled={busy !== null}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            { borderColor: theme.outline, backgroundColor: theme.surface, opacity: pressed || busy ? 0.7 : 1 },
+          ]}
+        >
+          {busy === "issue" ? (
+            <ActivityIndicator color={theme.text} />
+          ) : (
+            <Txt weight="semibold" style={{ color: theme.text, fontSize: 16 }}>
+              Report an issue
+            </Txt>
+          )}
+        </Pressable>
       </View>
 
       {osmUrl ? (
-        <Pressable
-          onPress={() => Linking.openURL(osmUrl)}
-          accessibilityRole="link"
-          style={({ pressed }) => [
-            styles.secondaryButton,
-            { borderColor: theme.outline, backgroundColor: theme.surface, opacity: pressed ? 0.7 : 1 },
-          ]}
-        >
-          <Txt weight="semibold" style={{ color: theme.text, fontSize: 16 }}>
+        <Pressable onPress={() => Linking.openURL(osmUrl)} accessibilityRole="link" hitSlop={8} style={{ alignSelf: "center" }}>
+          <Txt weight="medium" style={{ color: theme.textSecondary, fontSize: 13, textDecorationLine: "underline" }}>
             View on OpenStreetMap
           </Txt>
         </Pressable>
@@ -201,7 +304,16 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", justifyContent: "space-between", gap: 16, paddingVertical: 13 },
   rowLabel: { fontSize: 15 },
   rowValue: { fontSize: 15, flexShrink: 1, textAlign: "right" },
+  actions: { flexDirection: "row", gap: 10 },
+  primaryButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   secondaryButton: {
+    flex: 1,
     height: 52,
     borderRadius: 16,
     borderWidth: 1.5,

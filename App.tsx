@@ -14,7 +14,8 @@ import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
-import { LocateIcon } from "./src/components/Icons";
+import { LocateIcon, PlusIcon } from "./src/components/Icons";
+import { PlacementPin, ReportSheet } from "./src/components/ReportSheet";
 import { PlaceSheet } from "./src/components/PlaceSheet";
 import { RouteHeader, RouteSheet } from "./src/components/RouteSheet";
 import { SearchBar } from "./src/components/SearchBar";
@@ -23,6 +24,7 @@ import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoin
 import type { Place } from "./src/lib/geocode";
 import { fetchRoutes, type RouteOption } from "./src/lib/directions";
 import { camerasAlongRoutes } from "./src/lib/routeCameras";
+import { reportNewPoint } from "./src/lib/reports";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
 import { useTheme } from "./src/theme";
 
@@ -71,6 +73,18 @@ function MapScreen() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const routeAbortRef = useRef<AbortController | null>(null);
+
+  // Report flow + toasts
+  const [reporting, setReporting] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((text: string) => {
+    setToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 5000);
+  }, []);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const zoom = useMemo(() => zoomForRegion(region, width), [region, width]);
@@ -251,6 +265,45 @@ function MapScreen() {
   }, []);
 
   const inRouteMode = routes !== null;
+
+  // ---- Report new equipment ----------------------------------------------------
+  const startReport = useCallback(
+    (at?: { latitude: number; longitude: number }) => {
+      Keyboard.dismiss();
+      setSelected(null);
+      setReportError(null);
+      setReporting(true);
+      const target = at ?? (userLoc ? { latitude: userLoc.lat, longitude: userLoc.lon } : null);
+      if (target) {
+        mapRef.current?.animateToRegion({ ...target, latitudeDelta: 0.004, longitudeDelta: 0.004 }, 400);
+      }
+    },
+    [userLoc]
+  );
+
+  const submitReport = useCallback(
+    async (directionDeg: number | null) => {
+      setReportBusy(true);
+      setReportError(null);
+      try {
+        const cam = await mapRef.current?.getCamera();
+        if (!cam) throw new Error("Map isn't ready yet. Try again.");
+        const r = await reportNewPoint(cam.center.latitude, cam.center.longitude, directionDeg);
+        setReporting(false);
+        if (r.merged_into) {
+          showToast(r.note ? `That camera is already on the map. ${r.note}` : "That camera is already on the map, so we counted it as a confirmation. Thanks!");
+        } else {
+          showToast("Thanks! Others nearby will confirm it.");
+        }
+        load(regionRef.current);
+      } catch (e: any) {
+        setReportError(e?.message ?? "Couldn't send the report. Try again.");
+      } finally {
+        setReportBusy(false);
+      }
+    },
+    [load, showToast]
+  );
   const showCones = zoom >= 13;
   const shadow = {
     shadowColor: theme.shadowColor,
@@ -269,7 +322,10 @@ function MapScreen() {
         onRegionChangeComplete={onRegionChangeComplete}
         onPress={() => {
           Keyboard.dismiss();
-          setSelected(null);
+          if (!reporting) setSelected(null);
+        }}
+        onLongPress={(e) => {
+          if (!inRouteMode && !reporting) startReport(e.nativeEvent.coordinate);
         }}
         showsUserLocation
         showsMyLocationButton={false}
@@ -386,7 +442,13 @@ function MapScreen() {
 
       {/* Search, or the from/to card while previewing routes */}
       <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
-        {inRouteMode && searchPin ? (
+        {reporting ? (
+          <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
+            <Txt weight="semibold" style={{ color: theme.text, fontSize: 15 }}>
+              Move the map so the pin sits on the camera
+            </Txt>
+          </View>
+        ) : inRouteMode && searchPin ? (
           <RouteHeader theme={theme} destination={searchPin.name} onBack={exitRoutes} />
         ) : (
           <SearchBar
@@ -399,6 +461,13 @@ function MapScreen() {
             }}
           />
         )}
+        {toast ? (
+          <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
+            <Txt weight="medium" style={{ color: theme.text, fontSize: 14 }}>
+              {toast}
+            </Txt>
+          </View>
+        ) : null}
         {loadError ? (
           <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
             <Txt weight="medium" style={{ color: theme.text, fontSize: 14 }}>
@@ -416,13 +485,46 @@ function MapScreen() {
       </View>
 
       {/* ODbL attribution */}
-      {!selected && !searchPin && !inRouteMode ? (
+      {!selected && !searchPin && !inRouteMode && !reporting ? (
         <View style={[styles.attribution, { bottom: insets.bottom + 4 }]} pointerEvents="none">
           <Txt style={{ fontSize: 10, color: theme.textSecondary }}>Camera data © OpenStreetMap contributors</Txt>
         </View>
       ) : null}
 
-      {inRouteMode ? (
+      {reporting ? <PlacementPin theme={theme} /> : null}
+
+      {/* Report button (Home board: white pill, bottom right) */}
+      {!reporting && !inRouteMode && !selected && !searchPin ? (
+        <Pressable
+          onPress={() => startReport()}
+          accessibilityRole="button"
+          accessibilityLabel="Report equipment"
+          accessibilityHint="You can also long-press the map"
+          style={({ pressed }) => [
+            styles.reportButton,
+            { bottom: insets.bottom + 28, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1 },
+            shadow,
+          ]}
+        >
+          <PlusIcon color={theme.text} />
+          <Txt weight="semibold" style={{ color: theme.text, fontSize: 15 }}>
+            Report
+          </Txt>
+        </Pressable>
+      ) : null}
+
+      {reporting ? (
+        <ReportSheet
+          theme={theme}
+          busy={reportBusy}
+          error={reportError}
+          onSubmit={submitReport}
+          onCancel={() => {
+            setReporting(false);
+            setReportError(null);
+          }}
+        />
+      ) : inRouteMode ? (
         <RouteSheet
           theme={theme}
           routes={routes ?? []}
@@ -455,7 +557,12 @@ function MapScreen() {
       ) : null}
 
       {/* Camera details sit above everything else, including route previews. */}
-      <CameraSheet point={selected} theme={theme} onClose={() => setSelected(null)} />
+      <CameraSheet
+        point={reporting ? null : selected}
+        theme={theme}
+        onClose={() => setSelected(null)}
+        onChanged={() => load(regionRef.current)}
+      />
     </View>
   );
 }
@@ -467,4 +574,15 @@ const styles = StyleSheet.create({
   controls: { position: "absolute", right: 16, borderRadius: 16 },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   attribution: { position: "absolute", right: 12 },
+  reportButton: {
+    position: "absolute",
+    right: 16,
+    height: 48,
+    paddingLeft: 14,
+    paddingRight: 18,
+    borderRadius: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
 });
