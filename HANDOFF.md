@@ -92,7 +92,7 @@ functions.
 | `get_cameras_in_boxes(boxes jsonb, max_count)` | anon | `[[id,lat,lon,dir],…]` inside up to 200 boxes |
 | `get_public_config()` | anon | `{ "mapbox_token": "pk…" }` from `private.public_client_config` |
 | `vote_on_point(id, 'confirm'\|'gone', user_lat, user_lon)` | authenticated | ≤300 m check, 1 vote/person/point/24 h, 50 actions/day, recomputes confidence |
-| `report_new_point(lat, lon, direction_deg, user_lat, user_lon)` | authenticated | ≤300 m, US only, 10/day, merges into an existing point within 25 m (counts as a confirm) |
+| `report_new_point(lat, lon, direction_deg, user_lat, user_lon)` | authenticated | ≤300 m, US only, **1 new camera per person per 24 h** (migration 0011), merges into an existing point within 25 m (counts as a confirm) |
 | `report_issue(id, kind, note)` | authenticated | Goes to the moderation queue (status pending) |
 | `upsert_osm_points(rows, region)` | service_role | Import upsert; skips non-US points; keeps community-archived points archived |
 | `verify_import_secret`, `log_import_run`, `load_us_boundary` | service_role | Edge-function plumbing |
@@ -113,7 +113,7 @@ over 12 months. Score ≥ 70 is Verified, 40–69 Community reported, < 40 Needs
 2+ independent "gone" votes that outweigh confirmations archive the point. Reporter trust
 rises when others confirm their reports and falls when they're voted gone.
 
-**Migrations** live in `supabase/migrations/20260926000001…10`, all applied to the live
+**Migrations** live in `supabase/migrations/20260926000001…11`, all applied to the live
 project. Note: some one-off SQL was also run directly (setting `import_config.function_url`,
 the ad-hoc first-import helpers that migration 6 dropped, inserting the Mapbox token). The live
 database therefore matches the migration files plus that data.

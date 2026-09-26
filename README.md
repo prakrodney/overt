@@ -76,7 +76,7 @@ Each phone signs in with an anonymous Supabase account (Supabase → Authenticat
 anonymous sign-ins** must be on). People can confirm a camera (**Still there**), say it's
 gone, flag wrong location/details, or report new equipment. The server checks you're within
 300 m (your location is used for that check only; the report stores the camera's location),
-allows one vote per camera per day, and caps new reports at 10/day. Confidence and reporter
+allows one vote per camera per day, and allows **one new camera per person per day**. Confidence and reporter
 trust are recomputed on every vote (`private.recompute_confidence`). Review flagged reports
 in the SQL editor: `select * from private.moderation_queue;` then
 `select private.moderate_report(<id>, 'accepted' | 'rejected');`.
