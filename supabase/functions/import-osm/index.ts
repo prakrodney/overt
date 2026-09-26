@@ -12,8 +12,9 @@
 // fits inside the edge function's 150 s limit. A region that fails is simply
 // retried on the next scheduled run.
 const OVERPASS_URLS: [string, number][] = [
-  ["https://overpass-api.de/api/interpreter", 95000],
-  ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", 45000],
+  ["https://overpass-api.de/api/interpreter", 70000],
+  ["https://overpass.private.coffee/api/interpreter", 40000],
+  ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", 25000],
 ];
 
 const CARDINALS: Record<string, number> = {
@@ -97,8 +98,10 @@ async function overpass(query: string): Promise<OsmElement[]> {
       });
       if (res.ok) {
         const json = await res.json();
-        if (json.remark && /runtime error|timed out/i.test(json.remark)) {
-          errors.push(`${new URL(url).host}: ${json.remark}`);
+        // Overpass reports timeouts / memory limits as a "remark" with partial
+        // (often empty) results: treat that as a failure, never as "no cameras".
+        if (json.remark) {
+          errors.push(`${new URL(url).host}: ${String(json.remark).slice(0, 160)}`);
           continue;
         }
         return json.elements ?? [];
@@ -166,11 +169,11 @@ Deno.serve(async (req) => {
   const useArea = body.useArea !== false;
 
   const query = useArea
-    ? `[out:json][timeout:90];
+    ? `[out:json][timeout:60];
 area["ISO3166-1"="US"][admin_level=2]->.us;
 nwr["surveillance:type"="ALPR"](area.us)${bboxFilter};
 out center meta;`
-    : `[out:json][timeout:90];
+    : `[out:json][timeout:60];
 nwr["surveillance:type"="ALPR"]${bboxFilter};
 out center meta;`;
 
