@@ -1,4 +1,7 @@
-# Overt
+# Overt (app name: DeCam GPS)
+
+The app shows up on phones as **DeCam GPS** (`app.json` → `name`, logo in `assets/icon.png`).
+The code, repo, Supabase project and file names keep the working name **Overt**.
 
 Navigation that shows you the surveillance around you. This is **milestone 1**: a
 map-first iPhone prototype that shows every automated license plate reader (ALPR)
@@ -15,6 +18,7 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Search bar with a free geocoder ([Photon](https://photon.komoot.io), OpenStreetMap data) | `src/components/SearchBar.tsx`, `src/lib/geocode.ts` |
 | Colors and type (Figtree) from the Overt screen designs | `src/theme.ts` |
 | Report + confirm: **Report** button or long-press the map to add a camera; **Still there** / **Report an issue** on each camera (anonymous account, within 300 m) | `src/components/ReportSheet.tsx`, `src/components/CameraSheet.tsx`, `src/lib/reports.ts`, `src/lib/auth.ts` |
+| Home sheet: **Where to?** with Home / Work (tap to set, long-press to change) and 2 recent places, all stored only on the phone; first-launch location explainer; app icon (`assets/icon.png`) | `src/components/WhereToSheet.tsx`, `src/components/LocationIntro.tsx`, `src/lib/savedPlaces.ts` |
 | Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone

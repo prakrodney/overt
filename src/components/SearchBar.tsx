@@ -13,11 +13,21 @@ export function SearchBar({
   near,
   onSelect,
   onClear,
+  placeholder = "Search places or addresses",
+  focusSignal = 0,
+  clearOnPick = false,
+  onFocusChange,
 }: {
   theme: T;
   near?: { lat: number; lon: number };
   onSelect: (place: Place) => void;
   onClear: () => void;
+  placeholder?: string;
+  /** Change this number to focus the field (e.g. "Set Home"). */
+  focusSignal?: number;
+  /** Empty the field after a pick instead of showing the place's name. */
+  clearOnPick?: boolean;
+  onFocusChange?: (focused: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
@@ -27,6 +37,13 @@ export function SearchBar({
   const inputRef = useRef<TextInput>(null);
   const nearRef = useRef(near);
   nearRef.current = near;
+
+  useEffect(() => {
+    if (focusSignal) {
+      setQuery("");
+      inputRef.current?.focus();
+    }
+  }, [focusSignal]);
 
   useEffect(() => {
     const q = query.trim();
@@ -71,9 +88,15 @@ export function SearchBar({
           ref={inputRef}
           value={query}
           onChangeText={setQuery}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="Search places or addresses"
+          onFocus={() => {
+            setFocused(true);
+            onFocusChange?.(true);
+          }}
+          onBlur={() => {
+            setFocused(false);
+            onFocusChange?.(false);
+          }}
+          placeholder={placeholder}
           placeholderTextColor={theme.textSecondary}
           returnKeyType="search"
           autoCorrect={false}
@@ -82,7 +105,7 @@ export function SearchBar({
           selectionColor={theme.accent}
           style={[styles.input, { color: theme.text, fontFamily: fonts.regular }]}
           onSubmitEditing={() => results[0] && pick(results[0])}
-          accessibilityLabel="Search places or addresses"
+          accessibilityLabel={placeholder}
         />
         {loading ? <ActivityIndicator color={theme.textSecondary} style={{ marginRight: 8 }} /> : null}
         {query.length > 0 ? (
@@ -144,7 +167,7 @@ export function SearchBar({
   );
 
   function pick(place: Place) {
-    setQuery(place.name);
+    setQuery(clearOnPick ? "" : place.name);
     setResults([]);
     Keyboard.dismiss();
     inputRef.current?.blur();

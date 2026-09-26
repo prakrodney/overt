@@ -14,11 +14,13 @@ import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
-import { LocateIcon, PlusIcon } from "./src/components/Icons";
+import { CloseIcon, LocateIcon, PlusIcon } from "./src/components/Icons";
+import { LocationIntro } from "./src/components/LocationIntro";
 import { PlacementPin, ReportSheet } from "./src/components/ReportSheet";
 import { PlaceSheet } from "./src/components/PlaceSheet";
 import { RouteHeader, RouteSheet } from "./src/components/RouteSheet";
 import { SearchBar } from "./src/components/SearchBar";
+import { WhereToSheet } from "./src/components/WhereToSheet";
 import { Txt } from "./src/components/Txt";
 import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoint } from "./src/lib/cameras";
 import type { Place } from "./src/lib/geocode";
@@ -27,6 +29,17 @@ import { camerasAlongRoutesDetailed } from "./src/lib/routeCameras";
 import { findFewerCamerasRoute } from "./src/lib/fewerCameras";
 import { reportNewPoint } from "./src/lib/reports";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
+import {
+  addRecent,
+  EMPTY_PLACES,
+  introSeen,
+  loadSavedPlaces,
+  markIntroSeen,
+  removeRecent,
+  setSlot,
+  type SavedPlace,
+  type SavedPlaces,
+} from "./src/lib/savedPlaces";
 import { useTheme } from "./src/theme";
 
 // Whole contiguous US until we know where you are.
@@ -113,9 +126,65 @@ function MapScreen() {
     else setUserLoc({ lat: fresh.coords.latitude, lon: fresh.coords.longitude });
   }, []);
 
+  // Open straight at your location (no nationwide zoom-out first). The map waits for
+  // a position for up to ~4 s; without one (or without permission) it shows the US.
+  const [startRegion, setStartRegion] = useState<Region | null>(null);
+  const [showIntro, setShowIntro] = useState(false);
+  const bootedRef = useRef(false);
+  const boot = useCallback(() => {
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+    let done = false;
+    const start = (r: Region) => {
+      if (done) return;
+      done = true;
+      setStartRegion(r);
+    };
+    const near = (lat: number, lon: number): Region => ({
+      latitude: lat,
+      longitude: lon,
+      latitudeDelta: 0.03,
+      longitudeDelta: 0.03,
+    });
+    const timer = setTimeout(() => start(US_REGION), 4000);
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocationDenied(true);
+        return start(US_REGION);
+      }
+      const last = await Location.getLastKnownPositionAsync();
+      if (last) {
+        setUserLoc({ lat: last.coords.latitude, lon: last.coords.longitude });
+        start(near(last.coords.latitude, last.coords.longitude));
+      }
+      const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setUserLoc({ lat: fresh.coords.latitude, lon: fresh.coords.longitude });
+      if (done && !last) {
+        // Timed out before we had a fix: move there now.
+        mapRef.current?.animateToRegion(near(fresh.coords.latitude, fresh.coords.longitude), 600);
+      }
+      start(near(fresh.coords.latitude, fresh.coords.longitude));
+    })()
+      .catch(() => start(US_REGION))
+      .finally(() => clearTimeout(timer));
+  }, []);
+
+  // First launch shows a short explainer before iOS asks for location.
   useEffect(() => {
-    flyToUser(false).catch(() => setLocationDenied(true));
-  }, [flyToUser]);
+    introSeen().then((seen) => (seen ? boot() : setShowIntro(true)));
+  }, [boot]);
+
+  // Home / Work / recents (stored on this phone only).
+  const [places, setPlaces] = useState<SavedPlaces>(EMPTY_PLACES);
+  const [settingSlot, setSettingSlot] = useState<"home" | "work" | null>(null);
+  const [searchFocus, setSearchFocus] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [sheetH, setSheetH] = useState(0);
+  const [etas, setEtas] = useState<{ home?: number; work?: number }>({});
+  useEffect(() => {
+    loadSavedPlaces().then(setPlaces);
+  }, []);
 
   // ---- Load cameras for the visible area -------------------------------------
   const load = useCallback(
@@ -135,10 +204,12 @@ function MapScreen() {
     [width]
   );
 
-  // First paint: nationwide clusters, even before location permission resolves.
+  // First load, once the map knows where it starts.
   useEffect(() => {
-    load(US_REGION);
-  }, [load]);
+    if (!startRegion) return;
+    setRegion(startRegion);
+    load(startRegion);
+  }, [startRegion, load]);
 
   const onRegionChangeComplete = useCallback(
     (r: Region) => {
@@ -185,6 +256,12 @@ function MapScreen() {
   }, []);
 
   const goToPlace = useCallback((place: Place) => {
+    if (settingSlot) {
+      setPlaces((p) => setSlot(p, settingSlot, place));
+      showToast(`${settingSlot === "home" ? "Home" : "Work"} saved: ${place.name}`);
+      setSettingSlot(null);
+      return;
+    }
     setSelected(null);
     setRoutes(null);
     setRouteError(null);
@@ -204,7 +281,7 @@ function MapScreen() {
         600
       );
     }
-  }, []);
+  }, [settingSlot, showToast]);
 
   // ---- Route preview ----------------------------------------------------------
   const fitRoutes = useCallback((rs: RouteOption[]) => {
@@ -221,6 +298,7 @@ function MapScreen() {
       routeAbortRef.current?.abort();
       const ctrl = new AbortController();
       routeAbortRef.current = ctrl;
+      setPlaces((p) => addRecent(p, place));
       setRouteLoading(true);
       setRouteError(null);
       setRouteCounts(null);
@@ -285,6 +363,40 @@ function MapScreen() {
 
   const inRouteMode = routes !== null;
 
+  // Tap Home, Work or a recent place: straight to route previews.
+  const goSaved = useCallback(
+    (p: SavedPlace) => {
+      const place: Place = { ...p };
+      setSelected(null);
+      setSearchPin(place);
+      loadRoutes(place, avoidTolls);
+    },
+    [loadRoutes, avoidTolls]
+  );
+
+  // Drive times for the Home / Work tiles (once per place per app launch).
+  const hasLoc = userLoc != null;
+  useEffect(() => {
+    if (!userLoc) return;
+    const from = { latitude: userLoc.lat, longitude: userLoc.lon };
+    for (const slot of ["home", "work"] as const) {
+      const p = places[slot];
+      if (!p) {
+        setEtas((e) => (e[slot] == null ? e : { ...e, [slot]: undefined }));
+        continue;
+      }
+      fetchRoutes(from, { latitude: p.lat, longitude: p.lon }, { alternatives: false })
+        .then((rs) => rs[0] && setEtas((e) => ({ ...e, [slot]: rs[0].durationSec })))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoc, places.home?.id, places.work?.id]);
+
+  const nearbyCount = useMemo(
+    () => (startRegion ? layer.points.length + layer.clusters.reduce((n, c) => n + c.count, 0) : null),
+    [layer, startRegion]
+  );
+
   // ---- Report new equipment ----------------------------------------------------
   const startReport = useCallback(
     (at?: { latitude: number; longitude: number }) => {
@@ -324,6 +436,9 @@ function MapScreen() {
     [load, showToast]
   );
   const showCones = zoom >= 13;
+  const showHome =
+    startRegion != null && !reporting && !inRouteMode && !selected && !searchPin && !searchFocused && !settingSlot;
+  const homeH = showHome && sheetH ? sheetH : 0;
   const shadow = {
     shadowColor: theme.shadowColor,
     shadowOpacity: theme.isDark ? 0.4 : 0.12,
@@ -331,13 +446,32 @@ function MapScreen() {
     shadowOffset: { width: 0, height: 4 },
   };
 
+  if (showIntro) {
+    const finish = (ask: boolean) => {
+      markIntroSeen();
+      setShowIntro(false);
+      if (ask) boot();
+      else {
+        bootedRef.current = true;
+        setStartRegion(US_REGION);
+      }
+    };
+    return (
+      <>
+        <StatusBar style={theme.isDark ? "light" : "dark"} />
+        <LocationIntro theme={theme} onContinue={() => finish(true)} onSkip={() => finish(false)} />
+      </>
+    );
+  }
+
   return (
     <View style={[styles.fill, { backgroundColor: theme.mapFallback }]}>
       <StatusBar style={theme.isDark ? "light" : "dark"} />
+      {startRegion ? (
       <MapView
         ref={mapRef}
         style={styles.fill}
-        initialRegion={US_REGION}
+        initialRegion={startRegion}
         onRegionChangeComplete={onRegionChangeComplete}
         onPress={() => {
           Keyboard.dismiss();
@@ -355,7 +489,7 @@ function MapScreen() {
         mapType="mutedStandard"
         userInterfaceStyle={theme.isDark ? "dark" : "light"}
         tintColor={theme.accent}
-        legalLabelInsets={{ top: 0, right: 0, left: 12, bottom: selected || searchPin ? 0 : insets.bottom }}
+        legalLabelInsets={{ top: 0, right: 0, left: 12, bottom: homeH || (selected || searchPin ? 0 : insets.bottom) }}
       >
         {showCones ? (
           <DirectionCones points={layer.points} selectedId={selected?.id ?? null} zoom={zoom} theme={theme} />
@@ -444,6 +578,7 @@ function MapScreen() {
           </Marker>
         ) : null}
       </MapView>
+      ) : null}
 
       {/* Recenter */}
       <View
@@ -478,8 +613,33 @@ function MapScreen() {
               setSearchPin(null);
               setRouteError(null);
             }}
+            placeholder={
+              settingSlot ? `Search for your ${settingSlot === "home" ? "home" : "work"} address` : undefined
+            }
+            focusSignal={searchFocus}
+            clearOnPick={settingSlot != null}
+            onFocusChange={setSearchFocused}
           />
         )}
+        {settingSlot && !reporting && !inRouteMode ? (
+          <View style={[styles.toast, styles.settingRow, { backgroundColor: theme.control }, shadow]}>
+            <Txt weight="medium" style={{ color: theme.text, fontSize: 14, flex: 1 }}>
+              Pick a result to save it as {settingSlot === "home" ? "Home" : "Work"}.
+            </Txt>
+            <Pressable
+              onPress={() => {
+                setSettingSlot(null);
+                Keyboard.dismiss();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              hitSlop={8}
+              style={[styles.settingClose, { backgroundColor: theme.closeBg }]}
+            >
+              <CloseIcon size={14} color={theme.text} />
+            </Pressable>
+          </View>
+        ) : null}
         {toast ? (
           <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
             <Txt weight="medium" style={{ color: theme.text, fontSize: 14 }}>
@@ -505,7 +665,7 @@ function MapScreen() {
 
       {/* ODbL attribution */}
       {!selected && !searchPin && !inRouteMode && !reporting ? (
-        <View style={[styles.attribution, { bottom: insets.bottom + 4 }]} pointerEvents="none">
+        <View style={[styles.attribution, { bottom: homeH ? homeH + 4 : insets.bottom + 4 }]} pointerEvents="none">
           <Txt style={{ fontSize: 10, color: theme.textSecondary }}>Camera data © OpenStreetMap contributors</Txt>
         </View>
       ) : null}
@@ -521,7 +681,7 @@ function MapScreen() {
           accessibilityHint="You can also long-press the map"
           style={({ pressed }) => [
             styles.reportButton,
-            { bottom: insets.bottom + 28, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1 },
+            { bottom: homeH ? homeH + 24 : insets.bottom + 28, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1 },
             shadow,
           ]}
         >
@@ -574,6 +734,22 @@ function MapScreen() {
             setRouteError(null);
           }}
         />
+      ) : showHome ? (
+        <WhereToSheet
+          theme={theme}
+          places={places}
+          etas={etas}
+          nearbyCount={nearbyCount}
+          onGo={goSaved}
+          onSetSlot={(slot) => {
+            setSettingSlot(slot);
+            setSearchPin(null);
+            setSearchFocus((n) => n + 1);
+          }}
+          onClearSlot={(slot) => setPlaces((p) => setSlot(p, slot, null))}
+          onRemoveRecent={(id) => setPlaces((p) => removeRecent(p, id))}
+          onLayoutHeight={setSheetH}
+        />
       ) : null}
 
       {/* Camera details sit above everything else, including route previews. */}
@@ -594,6 +770,8 @@ const styles = StyleSheet.create({
   controls: { position: "absolute", right: 16, borderRadius: 16 },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   attribution: { position: "absolute", right: 12 },
+  settingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  settingClose: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   reportButton: {
     position: "absolute",
     right: 16,

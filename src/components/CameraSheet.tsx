@@ -19,7 +19,7 @@ const BADGE: Record<CameraPoint["confidence_level"], string> = {
 
 function sourceLabel(p: CameraPoint) {
   if (p.source === "osm") return "OpenStreetMap";
-  if (p.source === "community") return "Overt community";
+  if (p.source === "community") return "DeCam GPS community";
   return p.source;
 }
 

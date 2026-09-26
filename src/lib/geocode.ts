@@ -2,7 +2,7 @@
 // Fine for a prototype; the plan swaps in Mapbox Search before launch.
 
 const PHOTON = "https://photon.komoot.io";
-const HEADERS = { "User-Agent": "Overt/0.1 (prototype)" };
+const HEADERS = { "User-Agent": "DeCamGPS/0.1 (prototype)" };
 
 export type Place = {
   id: string;
@@ -35,14 +35,20 @@ export async function searchPlaces(
   near?: { lat: number; lon: number },
   signal?: AbortSignal
 ): Promise<Place[]> {
-  const params = new URLSearchParams({ q: query, limit: "8", lang: "en" });
-  if (near) {
-    params.set("lat", near.lat.toFixed(4));
-    params.set("lon", near.lon.toFixed(4));
-  }
-  const res = await fetch(`${PHOTON}/api/?${params}`, { headers: HEADERS, signal });
-  if (!res.ok) throw new Error(`Search failed (${res.status})`);
-  const json = (await res.json()) as { features: PhotonFeature[] };
+  // US results only; if nothing in the US matches, fall back to the whole world.
+  const search = async (usOnly: boolean) => {
+    const params = new URLSearchParams({ q: query, limit: "8", lang: "en" });
+    if (usOnly) params.set("countrycode", "us");
+    if (near) {
+      params.set("lat", near.lat.toFixed(4));
+      params.set("lon", near.lon.toFixed(4));
+    }
+    const res = await fetch(`${PHOTON}/api/?${params}`, { headers: HEADERS, signal });
+    if (!res.ok) throw new Error(`Search failed (${res.status})`);
+    return (await res.json()) as { features: PhotonFeature[] };
+  };
+  let json = await search(true);
+  if (!json.features.length) json = await search(false);
   return json.features.map((f, i) => {
     const p = f.properties;
     const { name, subtitle } = labelFor(p);

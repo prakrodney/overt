@@ -1,5 +1,7 @@
 # Overt: project handoff
 
+> **App name:** the app is now called **DeCam GPS** on phones (app.json name, logo in assets/icon.png from the owner's image). Code, repo, Supabase and file names stay "Overt".
+
 _Last updated: 2026-09-26, ~09:25 UTC. Written for the next Claude session. Read this first,
 then `README.md`._
 

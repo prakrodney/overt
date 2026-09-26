@@ -21,6 +21,8 @@ const light = {
   markerStroke: "#FFFFFF",
   markerGlyph: "#FFFFFF",
   markerMutedFill: "#F6F5F2",
+  clusterFill: "rgba(224,53,43,0.85)", // zoomed-out dots (same red as the cones)
+  clusterStroke: "rgba(255,255,255,0.9)",
   markerMutedStroke: "#9EA3AC",
   cone: "rgba(224,53,43,0.30)",
   coneStroke: "rgba(224,53,43,0.55)",
@@ -62,6 +64,8 @@ const dark: typeof light = {
   markerStroke: "#1B1D21",
   markerGlyph: "#1B1D21",
   markerMutedFill: "#24272C",
+  clusterFill: "rgba(255,90,78,0.85)",
+  clusterStroke: "rgba(27,29,33,0.9)",
   markerMutedStroke: "#6E747E",
   cone: "rgba(255,90,78,0.35)",
   coneStroke: "rgba(255,90,78,0.60)",

@@ -116,3 +116,29 @@ export function PlusIcon({ size = 20, color, strokeWidth = 2 }: P) {
     </Svg>
   );
 }
+
+export function HomeIcon({ size = 22, color, strokeWidth = 2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round">
+      <Path d="M4 11l8-7 8 7v9H4z" />
+    </Svg>
+  );
+}
+
+export function WorkIcon({ size = 22, color, strokeWidth = 2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round">
+      <Rect x={4} y={7} width={16} height={13} rx={2} />
+      <Path d="M9 7V4h6v3" />
+    </Svg>
+  );
+}
+
+export function ClockIcon({ size = 18, color, strokeWidth = 2 }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round">
+      <Circle cx={12} cy={12} r={8} />
+      <Path d="M12 8v4l3 2" />
+    </Svg>
+  );
+}

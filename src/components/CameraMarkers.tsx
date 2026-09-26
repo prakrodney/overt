@@ -5,7 +5,6 @@ import type { CameraCluster, CameraPoint } from "../lib/cameras";
 import { conePolygon, metersPerPoint } from "../lib/geo";
 import type { Theme } from "../theme";
 import { CameraGlyph } from "./Icons";
-import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
 
@@ -85,8 +84,8 @@ export const ClusterMarker = memo(function ClusterMarker({
   onPress: (c: CameraCluster) => void;
 }) {
   const n = cluster.count;
-  const r = n < 10 ? 15 : n < 100 ? 18 : n < 1000 ? 21 : 25;
-  const label = n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  // A small, quiet dot: bigger where there are more cameras, no numbers.
+  const d = n < 10 ? 10 : n < 100 ? 13 : n < 1000 ? 16 : 20;
   return (
     <Marker
       key={`${cluster.id}-${n}-${theme.isDark ? "d" : "l"}`}
@@ -100,25 +99,18 @@ export const ClusterMarker = memo(function ClusterMarker({
       zIndex={5}
       accessibilityLabel={`${n} license plate readers. Tap to zoom in.`}
     >
-      <View
-        style={{
-          width: r * 2 + 2,
-          height: r * 2 + 2,
-          borderRadius: r + 1,
-          backgroundColor: theme.markerFill,
-          borderWidth: 2.5,
-          borderColor: theme.markerStroke,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: theme.shadowColor,
-          shadowOpacity: 0.25,
-          shadowRadius: 3,
-          shadowOffset: { width: 0, height: 1 },
-        }}
-      >
-        <Txt weight="bold" style={{ color: theme.markerGlyph, fontSize: n >= 1000 ? 12 : 13 }}>
-          {label}
-        </Txt>
+      {/* Invisible padding keeps the tap target comfortable. */}
+      <View style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{
+            width: d,
+            height: d,
+            borderRadius: d / 2,
+            backgroundColor: theme.clusterFill,
+            borderWidth: 1.5,
+            borderColor: theme.clusterStroke,
+          }}
+        />
       </View>
     </Marker>
   );
