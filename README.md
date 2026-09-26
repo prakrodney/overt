@@ -25,8 +25,8 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 3. When a QR code appears, open the iPhone **Camera** app, point it at the QR code and tap
    the **Open in Expo Go** banner.
 
-Your phone and PC need to be on the same Wi-Fi. If the phone can't connect, close the
-window and use **`Start Overt (tunnel).bat`** instead. The tunnel needs you signed in to a
+Your phone and PC need to be on the same network (the PC's network must be set to **Private**).
+**`Start Overt (tunnel).bat`** is a fallback, but Expo's tunnel is currently unreliable. The tunnel needs you signed in to a
 free Expo account in two places: on the PC (double-click **`Sign in to Expo.bat`**) and in
 the Expo Go app.
 
@@ -70,8 +70,9 @@ the routes (`get_cameras_in_boxes`) and measures which are within 30 m of each l
 route itself is never sent to Overt's server. A camera with a known facing only counts
 when the route runs along its view (within 50° of that axis), so an overpass camera looking
 across a freeway doesn't count for the freeway. If every route passes a camera, the app
-asks Mapbox for a **detour** that routes around those cameras (`exclude=point(...)`, up to
-50 points, up to 4 tries) and adds it as an extra card when it passes fewer
+asks Mapbox for a **detour** that routes around those cameras (`exclude=point(...)` on the
+spot of the route nearest each camera, so it blocks the road actually driven; up to 50 points,
+up to 6 tries) and adds it as an extra card when it passes fewer
 (`src/lib/fewerCameras.ts`). Turn-by-turn navigation needs the Mapbox
 Navigation SDK, which can't run inside Expo Go, so **Start** shows a note for now.
 
