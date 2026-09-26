@@ -25,7 +25,23 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   }
 }
 
-git config --global --add safe.directory ((Get-Location).Path -replace '\\', '/') 2>$null
+# First run: turn this folder into a git repository using the history that
+# came with the project (scripts\overt.bundle), without touching your files.
+if (-not (Test-Path ".git")) {
+  git init -q -b main
+  git fetch -q "scripts/overt.bundle" main
+  git update-ref refs/heads/main FETCH_HEAD
+  git reset -q
+  Add-Content ".git/info/exclude" "scripts/overt.bundle"
+  git remote add origin https://github.com/prakrodney/overt.git
+}
+if (-not (git config user.name)) { git config user.name "rodney" }
+if (-not (git config user.email)) { git config user.email "334100603+prakrodney@users.noreply.github.com" }
+
+# Anything you changed since then gets saved as a new commit before uploading.
+git add -A
+git diff --cached --quiet
+if ($LASTEXITCODE -ne 0) { git commit -q -m "Update from my PC" }
 
 Write-Host "Uploading to https://github.com/prakrodney/overt ..." -ForegroundColor Cyan
 Write-Host "If a GitHub sign-in window opens, choose 'Sign in with your browser' and approve it." -ForegroundColor Cyan
