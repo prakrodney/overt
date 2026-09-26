@@ -26,6 +26,9 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 Your phone and PC need to be on the same Wi-Fi. If the phone can't connect, close the
 window and use **`Start Overt (tunnel).bat`** instead.
 
+To put a copy on GitHub from your PC, double-click **`Upload to GitHub.bat`** (it installs Git
+if needed and asks you to sign in to GitHub in your browser).
+
 Developers: `npm install`, then `npx expo start --go`.
 
 ## Data
