@@ -1,0 +1,74 @@
+import { useColorScheme } from "react-native";
+
+// Colors lifted from the Overt screen designs (light + dark boards).
+const light = {
+  mapFallback: "#EEEDE9",
+  text: "#1B1D22",
+  textSecondary: "#5A5F69",
+  surface: "#FFFFFF", // sheets
+  control: "#FFFFFF", // search pill, floating buttons
+  subtle: "#F4F3F0", // result rows / tiles
+  closeBg: "#F1F0ED",
+  divider: "#ECEBE7",
+  handle: "#D9D7D2",
+  outline: "#D9D7D2",
+  accent: "#4A4FD6",
+  accentIcon: "#4A4FD6",
+  onAccent: "#FFFFFF",
+  badgeBg: "#E9EAFB",
+  badgeText: "#3438A8",
+  markerFill: "#3F4756",
+  markerStroke: "#FFFFFF",
+  markerGlyph: "#FFFFFF",
+  markerMutedFill: "#F6F5F2",
+  markerMutedStroke: "#9EA3AC",
+  cone: "rgba(224,53,43,0.30)",
+  coneStroke: "rgba(224,53,43,0.55)",
+  selectHalo: "rgba(74,79,214,0.14)",
+  shadowColor: "#1B1D22",
+  shadowOpacity: 0.14,
+};
+
+const dark: typeof light = {
+  mapFallback: "#1B1D21",
+  text: "#F2F3F5",
+  textSecondary: "#A2A7B0",
+  surface: "#202226",
+  control: "#26292E",
+  subtle: "#2A2D33",
+  closeBg: "#2E3137",
+  divider: "#33363C",
+  handle: "#464A52",
+  outline: "#464A52",
+  accent: "#5B60E8",
+  accentIcon: "#9A9EFF",
+  onAccent: "#FFFFFF",
+  badgeBg: "#2E3160",
+  badgeText: "#C4C6FF",
+  markerFill: "#D5D9E0",
+  markerStroke: "#1B1D21",
+  markerGlyph: "#1B1D21",
+  markerMutedFill: "#24272C",
+  markerMutedStroke: "#6E747E",
+  cone: "rgba(255,90,78,0.35)",
+  coneStroke: "rgba(255,90,78,0.60)",
+  selectHalo: "rgba(123,128,255,0.18)",
+  shadowColor: "#000000",
+  shadowOpacity: 0.4,
+};
+
+export type Theme = typeof light;
+
+export function useTheme(): Theme & { isDark: boolean } {
+  const isDark = useColorScheme() === "dark";
+  return { ...(isDark ? dark : light), isDark };
+}
+
+// Figtree, loaded in App.tsx via @expo-google-fonts/figtree.
+export const fonts = {
+  regular: "Figtree_400Regular",
+  medium: "Figtree_500Medium",
+  semibold: "Figtree_600SemiBold",
+  bold: "Figtree_700Bold",
+  extrabold: "Figtree_800ExtraBold",
+};

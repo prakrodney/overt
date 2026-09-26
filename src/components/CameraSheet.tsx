@@ -1,0 +1,211 @@
+import { useEffect, useRef, useState } from "react";
+import { Animated, Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { CameraPoint } from "../lib/cameras";
+import { describeLocation } from "../lib/geocode";
+import { formatFacing, formatUpdated } from "../lib/geo";
+import type { Theme } from "../theme";
+import { CheckIcon, CloseIcon, InfoIcon } from "./Icons";
+import { Txt } from "./Txt";
+
+type T = Theme & { isDark: boolean };
+
+const BADGE: Record<CameraPoint["confidence_level"], string> = {
+  verified: "Verified",
+  community: "Community reported",
+  needs_confirmation: "Needs confirmation",
+};
+
+function sourceLabel(p: CameraPoint) {
+  if (p.source === "osm") return "OpenStreetMap";
+  if (p.source === "community") return "Overt community";
+  return p.source;
+}
+
+function cameraType(p: CameraPoint) {
+  const maker = p.manufacturer && !/^unknown$/i.test(p.manufacturer) ? p.manufacturer : null;
+  return maker ? `${maker} ALPR camera` : "ALPR camera";
+}
+
+function Row({ label, value, theme, last }: { label: string; value: string; theme: T; last?: boolean }) {
+  return (
+    <View
+      style={[
+        styles.row,
+        { borderBottomColor: theme.divider, borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth * 2 },
+      ]}
+    >
+      <Txt style={[styles.rowLabel, { color: theme.textSecondary }]}>{label}</Txt>
+      <Txt weight="semibold" style={[styles.rowValue, { color: theme.text }]}>
+        {value}
+      </Txt>
+    </View>
+  );
+}
+
+/** Bottom sheet for a tapped camera. Swipe down or tap × to close. */
+export function CameraSheet({
+  point,
+  theme,
+  onClose,
+}: {
+  point: CameraPoint | null;
+  theme: T;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(600)).current;
+  const [shown, setShown] = useState<CameraPoint | null>(point);
+  const [place, setPlace] = useState<string | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Slide in / out, keeping the last point rendered while it animates away.
+  useEffect(() => {
+    if (point) {
+      setShown(point);
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 220 }).start();
+    } else {
+      Animated.timing(translateY, { toValue: 600, duration: 200, useNativeDriver: true }).start(() =>
+        setShown(null)
+      );
+    }
+  }, [point, translateY]);
+
+  // Approximate location: reverse-geocode to the nearest street.
+  useEffect(() => {
+    let live = true;
+    setPlace(null);
+    if (point) describeLocation(point.lat, point.lon).then((s) => live && setPlace(s));
+    return () => {
+      live = false;
+    };
+  }, [point]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => translateY.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 90 || g.vy > 0.8) onCloseRef.current();
+        else Animated.spring(translateY, { toValue: 0, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
+
+  if (!shown) return null;
+  const p = shown;
+  const coords = `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
+  const osmUrl = p.osm_type && p.osm_id ? `https://www.openstreetmap.org/${p.osm_type}/${p.osm_id}` : null;
+  const verified = p.confidence_level === "verified";
+
+  return (
+    <Animated.View
+      {...pan.panHandlers}
+      style={[
+        styles.sheet,
+        {
+          backgroundColor: theme.surface,
+          paddingBottom: Math.max(insets.bottom, 16) + 8,
+          shadowColor: theme.shadowColor,
+          shadowOpacity: theme.isDark ? 0.45 : 0.12,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      <View style={[styles.handle, { backgroundColor: theme.handle }]} />
+
+      <View style={styles.header}>
+        <View style={{ flex: 1, gap: 8 }}>
+          <Txt weight="semibold" style={[styles.overline, { color: theme.textSecondary }]}>
+            SURVEILLANCE · ALPR
+          </Txt>
+          <Txt weight="bold" style={[styles.title, { color: theme.text }]}>
+            Automated license plate reader
+          </Txt>
+          <View style={[styles.badge, { backgroundColor: theme.badgeBg }]}>
+            {verified ? <CheckIcon color={theme.badgeText} /> : <InfoIcon color={theme.badgeText} />}
+            <Txt weight="bold" style={{ color: theme.badgeText, fontSize: 13 }}>
+              {BADGE[p.confidence_level]}
+            </Txt>
+          </View>
+        </View>
+        <Pressable
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          hitSlop={8}
+          style={[styles.close, { backgroundColor: theme.closeBg }]}
+        >
+          <CloseIcon color={theme.text} />
+        </Pressable>
+      </View>
+
+      <View style={[styles.rows, { borderTopColor: theme.divider }]}>
+        <Row label="Type" value={cameraType(p)} theme={theme} />
+        <Row label="Location" value={`${place ?? coords} (approx.)`} theme={theme} />
+        <Row label="Facing" value={formatFacing(p.directions)} theme={theme} />
+        {p.operator ? <Row label="Operator" value={p.operator} theme={theme} /> : null}
+        <Row label="Source" value={sourceLabel(p)} theme={theme} />
+        <Row label="Last updated" value={formatUpdated(p.updated_at)} theme={theme} last />
+      </View>
+
+      {osmUrl ? (
+        <Pressable
+          onPress={() => Linking.openURL(osmUrl)}
+          accessibilityRole="link"
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            { borderColor: theme.outline, backgroundColor: theme.surface, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Txt weight="semibold" style={{ color: theme.text, fontSize: 16 }}>
+            View on OpenStreetMap
+          </Txt>
+        </Pressable>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 10,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -8 },
+    gap: 18,
+  },
+  handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center" },
+  header: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  overline: { fontSize: 13, letterSpacing: 0.4 },
+  title: { fontSize: 22, lineHeight: 26, letterSpacing: -0.3 },
+  badge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 5,
+    paddingLeft: 8,
+    paddingRight: 10,
+    borderRadius: 999,
+  },
+  close: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  rows: { borderTopWidth: StyleSheet.hairlineWidth * 2 },
+  row: { flexDirection: "row", justifyContent: "space-between", gap: 16, paddingVertical: 13 },
+  rowLabel: { fontSize: 15 },
+  rowValue: { fontSize: 15, flexShrink: 1, textAlign: "right" },
+  secondaryButton: {
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

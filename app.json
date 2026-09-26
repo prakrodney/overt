@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Overt",
+    "slug": "overt",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#EEEDE9",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.overtmaps.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Overt uses your location to center the map and show nearby license plate readers. Your trips are never stored."
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Overt uses your location to center the map and show nearby license plate readers. Your trips are never stored."
+        }
+      ],
+      "expo-status-bar",
+      "expo-font"
+    ]
+  }
+}
