@@ -24,7 +24,9 @@ that's in OpenStreetMap, and runs in **Expo Go**.
    the **Open in Expo Go** banner.
 
 Your phone and PC need to be on the same Wi-Fi. If the phone can't connect, close the
-window and use **`Start Overt (tunnel).bat`** instead.
+window and use **`Start Overt (tunnel).bat`** instead. The tunnel needs you signed in to a
+free Expo account in two places: on the PC (double-click **`Sign in to Expo.bat`**) and in
+the Expo Go app.
 
 To put a copy on GitHub from your PC, double-click **`Upload to GitHub.bat`** (it installs Git
 if needed and asks you to sign in to GitHub in your browser).
@@ -39,11 +41,18 @@ Developers: `npm install`, then `npx expo start --go`.
 - **Database:** Supabase Postgres + PostGIS, table `public.surveillance_points`.
   Row-level security lets the app read active points only; all writes go through the
   service role.
-- **Import:** the `import-osm` edge function (`supabase/functions/import-osm`) pulls one
-  region at a time and upserts on `(osm_type, osm_id)`. Points outside a US boundary
-  (geoBoundaries, padded ~300 m) are skipped.
-- **Nightly refresh:** `pg_cron` runs every region between 08:00 and 08:44 UTC. At 10:00 UTC,
-  points that disappeared from OSM are archived, but only if every region imported cleanly.
+- **Import:** the database pulls OpenStreetMap itself. A `pg_cron` job
+  (`osm-refresh-tick`) runs every minute. It processes Overpass responses that have
+  arrived (via `pg_net`) and starts the next of 76 regions whose last good import is over
+  20 hours old, with at most 2 requests in flight and mirrors rotated on failure. Rows are
+  upserted on `(osm_type, osm_id)`, so re-runs never duplicate. Points outside a US
+  boundary (geoBoundaries, padded ~300 m) are skipped. Progress is logged in
+  `private.import_runs`.
+- **Cleanup:** at 10:00 UTC daily, points missing from OpenStreetMap for 36 hours are
+  archived, but only when every region has imported cleanly in that window.
+- **Edge function:** `supabase/functions/import-osm` is kept for loading the US boundary
+  (`{"action":"load-boundary"}`). It was the first importer, before imports moved into
+  the database.
 - **Facing:** parsed from `direction` / `camera:direction` (degrees, compass points like
   `NE`, ranges like `45-90`, or several values like `0;180`).
 
@@ -57,7 +66,7 @@ src/lib/                     camera API, geocoder, geometry helpers
 src/components/              markers, sheet, search bar, icons
 supabase/migrations/         schema, camera-layer query, import plumbing, cron
 supabase/functions/import-osm  OpenStreetMap importer (Deno)
-scripts/start-overt.ps1      Windows helper used by "Start Overt.bat"
+scripts/                     Windows helpers used by the .bat files
 ```
 
 ## Not in this milestone
