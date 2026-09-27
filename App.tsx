@@ -25,7 +25,7 @@ import { WhereToSheet } from "./src/components/WhereToSheet";
 import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
 import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Categories";
 import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
-import { NavBanner, NavFooter, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
+import { NavBanner, NavFooter, RecenterPill, SpeakerIcon, StepsSheet } from "./src/components/Navigation";
 import { SettingsSheet } from "./src/components/SettingsSheet";
 import { NavEngine, type Hazard, type NavUpdate } from "./src/lib/navEngine";
 import { loadMuted, say, setMuted as setVoiceMuted, stopSpeaking } from "./src/lib/voice";
@@ -431,8 +431,17 @@ function MapScreen() {
             const cams = all.map((x) => x.filter((c) => !c.speed));
             const speeds = all.map((x) => x.length - x.filter((c) => !c.speed).length);
             const counts = cams.map((x) => x.length);
-            setRouteCounts(counts);
-            setSpeedCounts(speeds);
+            // Show the safest route first, then mixed, then unsafe (ties: quicker first).
+            const show = (rsX: RouteOption[], cX: number[], sX: number[]) => {
+              const order = rsX
+                .map((_, i) => i)
+                .sort((a, b) => cX[a] - cX[b] || rsX[a].durationSec - rsX[b].durationSec);
+              setRoutes(order.map((i) => rsX[i]));
+              setRouteCounts(order.map((i) => cX[i]));
+              setSpeedCounts(order.map((i) => sX[i]));
+              setSelectedRoute(0);
+            };
+            show(rs, counts, speeds);
             if (Math.min(...counts) === 0) return;
             setSearchingFewer(true);
             const fewer = await findFewerCamerasRoute(fromLL, toLL, rs, cams, {
@@ -440,9 +449,7 @@ function MapScreen() {
               signal: ctrl.signal,
             }).finally(() => setSearchingFewer(false));
             if (fewer && !ctrl.signal.aborted) {
-              setRoutes([...rs, fewer.route]);
-              setRouteCounts([...counts, fewer.cameras]);
-              setSpeedCounts([...speeds, fewer.speedCameras]);
+              show([...rs, fewer.route], [...counts, fewer.cameras], [...speeds, fewer.speedCameras]);
             }
           })
           .catch((e) => e?.name !== "AbortError" && setCountError("Couldn't count cameras on these routes."));
@@ -527,6 +534,7 @@ function MapScreen() {
     setVoiceMuted(m);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(false);
 
   const applyHazards = useCallback(() => {
     engineRef.current?.setHazards([...hazardsRef.current.cams, ...hazardsRef.current.alerts]);
@@ -1150,6 +1158,14 @@ function MapScreen() {
         </Pressable>
       ) : null}
 
+      <StepsSheet
+        visible={stepsOpen && navActive}
+        theme={theme}
+        route={navRoute}
+        update={navUpdate}
+        onClose={() => setStepsOpen(false)}
+      />
+
       <SettingsSheet
         visible={settingsOpen}
         theme={theme}
@@ -1190,6 +1206,7 @@ function MapScreen() {
           update={navUpdate}
           muted={muted}
           onToggleMute={() => toggleMuted(!muted)}
+          onShowSteps={() => setStepsOpen(true)}
           onEnd={endNav}
           onLayoutHeight={setNavFooterH}
         />

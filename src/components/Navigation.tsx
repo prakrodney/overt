@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
+import type { RouteOption } from "../lib/directions";
 import { arrivalTime, formatNavDistance, type NavUpdate } from "../lib/navEngine";
+import { CloseIcon } from "./Icons";
 import type { Theme } from "../theme";
 import { LocateIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -125,6 +127,7 @@ export function NavFooter({
   onToggleMute,
   onEnd,
   onLayoutHeight,
+  onShowSteps,
 }: {
   theme: T;
   update: NavUpdate | null;
@@ -132,6 +135,8 @@ export function NavFooter({
   onToggleMute: () => void;
   onEnd: () => void;
   onLayoutHeight: (h: number) => void;
+  /** Tap the time / distance to see every direction. */
+  onShowSteps?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const min = update ? Math.max(1, Math.round(update.remainingSec / 60)) : null;
@@ -157,7 +162,12 @@ export function NavFooter({
       >
         <SpeakerIcon muted={muted} color={theme.text} />
       </Pressable>
-      <View style={{ flex: 1, alignItems: "center" }}>
+      <Pressable
+        onPress={onShowSteps}
+        accessibilityRole="button"
+        accessibilityLabel="Show all directions"
+        style={({ pressed }) => ({ flex: 1, alignItems: "center", opacity: pressed ? 0.6 : 1 })}
+      >
         <Txt weight="extrabold" style={{ fontSize: 24, color: theme.text }}>
           {update ? arrivalTime(update.remainingSec) : "--"}
         </Txt>
@@ -166,7 +176,10 @@ export function NavFooter({
             ? `${min < 60 ? `${min} min` : `${Math.floor(min / 60)} hr ${min % 60} min`} · ${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi`
             : "Getting your location…"}
         </Txt>
-      </View>
+        <Txt weight="semibold" style={{ fontSize: 12, color: theme.accentIcon, marginTop: 2 }}>
+          All directions ›
+        </Txt>
+      </Pressable>
       <Pressable
         onPress={onEnd}
         accessibilityRole="button"
@@ -246,4 +259,121 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
   },
+});
+
+/** Full list of directions for the route, with the next turn highlighted. */
+export function StepsSheet({
+  visible,
+  theme,
+  route,
+  update,
+  onClose,
+}: {
+  visible: boolean;
+  theme: T;
+  route: RouteOption | null;
+  update: NavUpdate | null;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const steps = route?.steps ?? [];
+  const current = update?.stepIndex ?? 0;
+  // Step k's maneuver is where step k starts; the next turn is the start of step current+1.
+  const rows = steps.map((st, i) => ({ st, i })).filter(({ i }) => i > 0);
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: theme.surface }}>
+        <View style={[stepStyles.header, { borderBottomColor: theme.divider }]}>
+          <View style={{ flex: 1 }}>
+            <Txt weight="bold" style={{ fontSize: 22, color: theme.text }}>
+              Directions
+            </Txt>
+            {update ? (
+              <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
+                Arrive {arrivalTime(update.remainingSec)} · {formatNavDistance(update.remainingM)} to go
+              </Txt>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={8}
+            style={[stepStyles.close, { backgroundColor: theme.closeBg }]}
+          >
+            <CloseIcon color={theme.text} />
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
+          {rows.map(({ st, i }) => {
+            const done = i <= current;
+            const next = i === current + 1;
+            // Distance to this maneuver: live for the next one, else sum of the steps before it.
+            let away: number | null = null;
+            if (next && update) away = update.toManeuver;
+            else if (!done && update) {
+              away = update.toManeuver;
+              for (let j = current + 1; j < i; j++) away += steps[j].distanceM;
+            }
+            return (
+              <View
+                key={i}
+                style={[
+                  stepStyles.row,
+                  { borderBottomColor: theme.divider, opacity: done ? 0.4 : 1 },
+                  next && { backgroundColor: theme.badgeBg },
+                ]}
+              >
+                <View style={[stepStyles.icon, { backgroundColor: next ? theme.accent : theme.subtle }]}>
+                  <ManeuverIcon
+                    type={st.maneuver.type}
+                    modifier={st.maneuver.modifier}
+                    size={26}
+                    color={next ? theme.onAccent : theme.text}
+                  />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Txt weight={next ? "bold" : "semibold"} style={{ fontSize: 16, color: theme.text }}>
+                    {st.maneuver.instruction}
+                  </Txt>
+                  {st.distanceM > 0 && st.maneuver.type !== "arrive" ? (
+                    <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                      Then continue {formatNavDistance(st.distanceM)}
+                    </Txt>
+                  ) : null}
+                </View>
+                {away != null && !done ? (
+                  <Txt weight="bold" style={{ fontSize: 14, color: next ? theme.accentIcon : theme.textSecondary }}>
+                    {formatNavDistance(away)}
+                  </Txt>
+                ) : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const stepStyles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  close: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  icon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
 });
