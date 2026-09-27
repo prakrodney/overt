@@ -64,6 +64,13 @@ export function removeRecent(p: SavedPlaces, id: string): SavedPlaces {
   return next;
 }
 
+/** Forget every recent destination (Home and Work stay). */
+export function clearRecents(p: SavedPlaces): SavedPlaces {
+  const next = { ...p, recents: [] };
+  save(next);
+  return next;
+}
+
 export async function introSeen(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(INTRO_KEY)) === "1";

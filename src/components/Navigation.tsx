@@ -1,9 +1,9 @@
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import type { RouteOption } from "../lib/directions";
 import { arrivalTime, formatNavDistance, type NavUpdate } from "../lib/navEngine";
-import { CloseIcon } from "./Icons";
 import type { Theme } from "../theme";
 import { LocateIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -120,76 +120,140 @@ export function SpeakerIcon({ muted, color }: { muted: boolean; color: string })
 }
 
 /** Bottom bar while navigating: arrival time, time/distance left, mute, end. */
-export function NavFooter({
+/**
+ * Bottom panel while navigating. Collapsed: mute · arrival time · End.
+ * Swipe up (or tap the time) to see every direction; swipe down to tuck it away.
+ */
+export function NavPanel({
   theme,
   update,
+  route,
   muted,
   onToggleMute,
   onEnd,
   onLayoutHeight,
-  onShowSteps,
 }: {
   theme: T;
   update: NavUpdate | null;
+  route: RouteOption | null;
   muted: boolean;
   onToggleMute: () => void;
   onEnd: () => void;
+  /** Height of the collapsed bar, so buttons can sit above it. */
   onLayoutHeight: (h: number) => void;
-  /** Tap the time / distance to see every direction. */
-  onShowSteps?: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: screenH } = useWindowDimensions();
+  const fullH = Math.round(screenH * 0.66);
+  const [barH, setBarH] = useState(0);
+  const [open, setOpen] = useState(false);
+  const closedY = Math.max(0, fullH - barH);
+  const y = useRef(new Animated.Value(10000)).current;
+  const startY = useRef(0);
+  const currentY = useRef(10000);
+  useEffect(() => {
+    const id = y.addListener(({ value }) => (currentY.current = value));
+    return () => y.removeListener(id);
+  }, [y]);
+
+  const snap = (toOpen: boolean) => {
+    setOpen(toOpen);
+    Animated.spring(y, { toValue: toOpen ? 0 : closedY, useNativeDriver: true, bounciness: 3, speed: 16 }).start();
+  };
+  // Keep the collapsed position right when sizes change.
+  useEffect(() => {
+    if (barH) y.setValue(open ? 0 : closedY);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barH, closedY]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => {
+        y.stopAnimation();
+        startY.current = currentY.current;
+      },
+      onPanResponderMove: (_, g) => {
+        y.setValue(Math.min(closedYRef.current, Math.max(0, startY.current + g.dy)));
+      },
+      onPanResponderRelease: (_, g) => {
+        const pos = startY.current + g.dy;
+        const toOpen = g.vy < -0.3 ? true : g.vy > 0.3 ? false : pos < closedYRef.current / 2;
+        snapRef.current(toOpen);
+      },
+    })
+  ).current;
+  const closedYRef = useRef(closedY);
+  closedYRef.current = closedY;
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
+
   const min = update ? Math.max(1, Math.round(update.remainingSec / 60)) : null;
   const mi = update ? update.remainingM / 1609.344 : null;
   return (
-    <View
-      onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}
+    <Animated.View
       style={[
-        styles.footer,
+        styles.panel,
         {
+          height: fullH,
           backgroundColor: theme.surface,
-          paddingBottom: Math.max(insets.bottom, 12) + 6,
           shadowColor: theme.shadowColor,
-          shadowOpacity: theme.isDark ? 0.45 : 0.12,
+          shadowOpacity: theme.isDark ? 0.45 : 0.14,
+          transform: [{ translateY: y }],
+          opacity: barH ? 1 : 0,
         },
       ]}
     >
-      <Pressable
-        onPress={onToggleMute}
-        accessibilityRole="button"
-        accessibilityLabel={muted ? "Unmute voice" : "Mute voice"}
-        style={[styles.round, { backgroundColor: theme.subtle }]}
+      {/* Drag area: handle + the bar */}
+      <View
+        {...pan.panHandlers}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          setBarH(h);
+          onLayoutHeight(h);
+        }}
+        style={{ paddingBottom: Math.max(insets.bottom, 12) + 6 }}
       >
-        <SpeakerIcon muted={muted} color={theme.text} />
-      </Pressable>
-      <Pressable
-        onPress={onShowSteps}
-        accessibilityRole="button"
-        accessibilityLabel="Show all directions"
-        style={({ pressed }) => ({ flex: 1, alignItems: "center", opacity: pressed ? 0.6 : 1 })}
-      >
-        <Txt weight="extrabold" style={{ fontSize: 24, color: theme.text }}>
-          {update ? arrivalTime(update.remainingSec) : "--"}
-        </Txt>
-        <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
-          {min != null && mi != null
-            ? `${min < 60 ? `${min} min` : `${Math.floor(min / 60)} hr ${min % 60} min`} · ${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi`
-            : "Getting your location…"}
-        </Txt>
-        <Txt weight="semibold" style={{ fontSize: 12, color: theme.accentIcon, marginTop: 2 }}>
-          All directions ›
-        </Txt>
-      </Pressable>
-      <Pressable
-        onPress={onEnd}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.end, { backgroundColor: theme.crashFill, opacity: pressed ? 0.85 : 1 }]}
-      >
-        <Txt weight="bold" style={{ color: "#FFFFFF", fontSize: 16 }}>
-          End
-        </Txt>
-      </Pressable>
-    </View>
+        <View style={[styles.handle, { backgroundColor: theme.handle }]} />
+        <View style={styles.barRow}>
+          <Pressable
+            onPress={onToggleMute}
+            accessibilityRole="button"
+            accessibilityLabel={muted ? "Unmute voice" : "Mute voice"}
+            style={[styles.round, { backgroundColor: theme.subtle }]}
+          >
+            <SpeakerIcon muted={muted} color={theme.text} />
+          </Pressable>
+          <Pressable
+            onPress={() => snap(!open)}
+            accessibilityRole="button"
+            accessibilityLabel={open ? "Hide directions" : "Show all directions"}
+            style={({ pressed }) => ({ flex: 1, alignItems: "center", opacity: pressed ? 0.6 : 1 })}
+          >
+            <Txt weight="extrabold" style={{ fontSize: 24, color: theme.text }}>
+              {update ? arrivalTime(update.remainingSec) : "--"}
+            </Txt>
+            <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
+              {min != null && mi != null
+                ? `${min < 60 ? `${min} min` : `${Math.floor(min / 60)} hr ${min % 60} min`} · ${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi`
+                : "Getting your location…"}
+            </Txt>
+          </Pressable>
+          <Pressable
+            onPress={onEnd}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.end, { backgroundColor: theme.crashFill, opacity: pressed ? 0.85 : 1 }]}
+          >
+            <Txt weight="bold" style={{ color: "#FFFFFF", fontSize: 16 }}>
+              End
+            </Txt>
+          </Pressable>
+        </View>
+      </View>
+      <View style={{ flex: 1, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.divider }}>
+        <StepsList theme={theme} route={route} update={update} bottomPad={insets.bottom + 16} />
+      </View>
+    </Animated.View>
   );
 }
 
@@ -227,21 +291,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   bannerRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  footer: {
+  panel: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    paddingTop: 14,
-    paddingHorizontal: 18,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -6 },
+    overflow: "visible",
   },
+  handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center", marginTop: 8, marginBottom: 8 },
+  barRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18 },
   round: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   end: { height: 48, paddingHorizontal: 22, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   recenter: {
@@ -261,98 +323,68 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Full list of directions for the route, with the next turn highlighted. */
-export function StepsSheet({
-  visible,
+/** Every direction on the route, with the next turn highlighted and past turns faded. */
+function StepsList({
   theme,
   route,
   update,
-  onClose,
+  bottomPad,
 }: {
-  visible: boolean;
   theme: T;
   route: RouteOption | null;
   update: NavUpdate | null;
-  onClose: () => void;
+  bottomPad: number;
 }) {
-  const insets = useSafeAreaInsets();
   const steps = route?.steps ?? [];
   const current = update?.stepIndex ?? 0;
   // Step k's maneuver is where step k starts; the next turn is the start of step current+1.
   const rows = steps.map((st, i) => ({ st, i })).filter(({ i }) => i > 0);
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.surface }}>
-        <View style={[stepStyles.header, { borderBottomColor: theme.divider }]}>
-          <View style={{ flex: 1 }}>
-            <Txt weight="bold" style={{ fontSize: 22, color: theme.text }}>
-              Directions
-            </Txt>
-            {update ? (
-              <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
-                Arrive {arrivalTime(update.remainingSec)} · {formatNavDistance(update.remainingM)} to go
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
+      {rows.map(({ st, i }) => {
+        const done = i <= current;
+        const next = i === current + 1;
+        let away: number | null = null;
+        if (update && !done) {
+          away = update.toManeuver;
+          for (let j = current + 1; j < i; j++) away += steps[j].distanceM;
+        }
+        return (
+          <View
+            key={i}
+            style={[
+              stepStyles.row,
+              { borderBottomColor: theme.divider, opacity: done ? 0.4 : 1 },
+              next && { backgroundColor: theme.badgeBg },
+            ]}
+          >
+            <View style={[stepStyles.icon, { backgroundColor: next ? theme.accent : theme.subtle }]}>
+              <ManeuverIcon
+                type={st.maneuver.type}
+                modifier={st.maneuver.modifier}
+                size={26}
+                color={next ? theme.onAccent : theme.text}
+              />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Txt weight={next ? "bold" : "semibold"} style={{ fontSize: 16, color: theme.text }}>
+                {st.maneuver.instruction}
+              </Txt>
+              {st.distanceM > 0 && st.maneuver.type !== "arrive" ? (
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  Then continue {formatNavDistance(st.distanceM)}
+                </Txt>
+              ) : null}
+            </View>
+            {away != null ? (
+              <Txt weight="bold" style={{ fontSize: 14, color: next ? theme.accentIcon : theme.textSecondary }}>
+                {formatNavDistance(away)}
               </Txt>
             ) : null}
           </View>
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            hitSlop={8}
-            style={[stepStyles.close, { backgroundColor: theme.closeBg }]}
-          >
-            <CloseIcon color={theme.text} />
-          </Pressable>
-        </View>
-        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
-          {rows.map(({ st, i }) => {
-            const done = i <= current;
-            const next = i === current + 1;
-            // Distance to this maneuver: live for the next one, else sum of the steps before it.
-            let away: number | null = null;
-            if (next && update) away = update.toManeuver;
-            else if (!done && update) {
-              away = update.toManeuver;
-              for (let j = current + 1; j < i; j++) away += steps[j].distanceM;
-            }
-            return (
-              <View
-                key={i}
-                style={[
-                  stepStyles.row,
-                  { borderBottomColor: theme.divider, opacity: done ? 0.4 : 1 },
-                  next && { backgroundColor: theme.badgeBg },
-                ]}
-              >
-                <View style={[stepStyles.icon, { backgroundColor: next ? theme.accent : theme.subtle }]}>
-                  <ManeuverIcon
-                    type={st.maneuver.type}
-                    modifier={st.maneuver.modifier}
-                    size={26}
-                    color={next ? theme.onAccent : theme.text}
-                  />
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Txt weight={next ? "bold" : "semibold"} style={{ fontSize: 16, color: theme.text }}>
-                    {st.maneuver.instruction}
-                  </Txt>
-                  {st.distanceM > 0 && st.maneuver.type !== "arrive" ? (
-                    <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
-                      Then continue {formatNavDistance(st.distanceM)}
-                    </Txt>
-                  ) : null}
-                </View>
-                {away != null && !done ? (
-                  <Txt weight="bold" style={{ fontSize: 14, color: next ? theme.accentIcon : theme.textSecondary }}>
-                    {formatNavDistance(away)}
-                  </Txt>
-                ) : null}
-              </View>
-            );
-          })}
-        </ScrollView>
-      </View>
-    </Modal>
+        );
+      })}
+    </ScrollView>
   );
 }
 

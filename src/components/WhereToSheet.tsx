@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatDuration } from "../lib/directions";
 import type { SavedPlace, SavedPlaces } from "../lib/savedPlaces";
 import type { Theme } from "../theme";
-import { ClockIcon, HomeIcon, WorkIcon } from "./Icons";
+import { ClockIcon, CloseIcon, HomeIcon, WorkIcon } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -136,6 +136,15 @@ export function WhereToSheet({
               </Txt>
             ) : null}
           </View>
+          <Pressable
+            onPress={() => onRemoveRecent(r.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${r.name} from history`}
+            hitSlop={10}
+            style={({ pressed }) => [styles.removeBtn, { backgroundColor: theme.closeBg, opacity: pressed ? 0.6 : 1 }]}
+          >
+            <CloseIcon size={12} color={theme.textSecondary} />
+          </Pressable>
         </Pressable>
       ))}
     </View>
@@ -161,5 +170,6 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: 10 },
   tile: { flex: 1, padding: 14, borderRadius: 16, gap: 6 },
   recent: { flexDirection: "row", alignItems: "center", gap: 12 },
+  removeBtn: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   recentIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
 });

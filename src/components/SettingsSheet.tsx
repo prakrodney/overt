@@ -1,4 +1,4 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { setAppearance, useAppearance, type Appearance, type Theme } from "../theme";
 import { CloseIcon } from "./Icons";
@@ -19,12 +19,17 @@ export function SettingsSheet({
   voiceOn,
   onVoiceChange,
   onClose,
+  historyCount,
+  onClearHistory,
 }: {
   visible: boolean;
   theme: T;
   voiceOn: boolean;
   onVoiceChange: (on: boolean) => void;
   onClose: () => void;
+  /** How many recent destinations are saved on this phone. */
+  historyCount: number;
+  onClearHistory: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const appearance = useAppearance();
@@ -99,6 +104,38 @@ export function SettingsSheet({
               />
             </View>
           </View>
+
+          <View style={{ gap: 8 }}>
+            <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
+              HISTORY
+            </Txt>
+            <View style={[styles.card, { backgroundColor: theme.surface }]}>
+              <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
+                {historyCount === 0
+                  ? "No recent places saved."
+                  : `${historyCount} recent ${historyCount === 1 ? "place is" : "places are"} saved on this phone.`}{" "}
+                DeCam GPS never stores your trips on its servers.
+              </Txt>
+              <Pressable
+                disabled={historyCount === 0}
+                onPress={() =>
+                  Alert.alert("Clear history?", "Your recent places will be removed from this phone. Home and Work stay.", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Clear", style: "destructive", onPress: onClearHistory },
+                  ])
+                }
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.dangerBtn,
+                  { backgroundColor: theme.badBg, opacity: historyCount === 0 ? 0.45 : pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Txt weight="bold" style={{ fontSize: 16, color: theme.badText }}>
+                  Clear history
+                </Txt>
+              </Pressable>
+            </View>
+          </View>
         </ScrollView>
       </View>
     </Modal>
@@ -119,6 +156,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, letterSpacing: 0.6, marginLeft: 4 },
   card: { borderRadius: 16, padding: 14, gap: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  dangerBtn: { height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   segment: { flexDirection: "row", borderRadius: 12, padding: 3 },
   segmentItem: {
     flex: 1,

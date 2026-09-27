@@ -25,7 +25,7 @@ import { WhereToSheet } from "./src/components/WhereToSheet";
 import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
 import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Categories";
 import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
-import { NavBanner, NavFooter, RecenterPill, SpeakerIcon, StepsSheet } from "./src/components/Navigation";
+import { NavBanner, NavPanel, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
 import { SettingsSheet } from "./src/components/SettingsSheet";
 import { NavEngine, type Hazard, type NavUpdate } from "./src/lib/navEngine";
 import { loadMuted, say, setMuted as setVoiceMuted, stopSpeaking } from "./src/lib/voice";
@@ -48,6 +48,7 @@ import {
   loadSavedPlaces,
   markIntroSeen,
   removeRecent,
+  clearRecents,
   setSlot,
   type SavedPlace,
   type SavedPlaces,
@@ -534,7 +535,6 @@ function MapScreen() {
     setVoiceMuted(m);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [stepsOpen, setStepsOpen] = useState(false);
 
   const applyHazards = useCallback(() => {
     engineRef.current?.setHazards([...hazardsRef.current.cams, ...hazardsRef.current.alerts]);
@@ -1158,20 +1158,17 @@ function MapScreen() {
         </Pressable>
       ) : null}
 
-      <StepsSheet
-        visible={stepsOpen && navActive}
-        theme={theme}
-        route={navRoute}
-        update={navUpdate}
-        onClose={() => setStepsOpen(false)}
-      />
-
       <SettingsSheet
         visible={settingsOpen}
         theme={theme}
         voiceOn={!muted}
         onVoiceChange={(on) => toggleMuted(!on)}
         onClose={() => setSettingsOpen(false)}
+        historyCount={places.recents.length}
+        onClearHistory={() => {
+          setPlaces((p) => clearRecents(p));
+          showToast("History cleared.");
+        }}
       />
 
       <ReviewScreen
@@ -1201,12 +1198,12 @@ function MapScreen() {
           }}
         />
       ) : navActive ? (
-        <NavFooter
+        <NavPanel
           theme={theme}
           update={navUpdate}
+          route={navRoute}
           muted={muted}
           onToggleMute={() => toggleMuted(!muted)}
-          onShowSteps={() => setStepsOpen(true)}
           onEnd={endNav}
           onLayoutHeight={setNavFooterH}
         />
