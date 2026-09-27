@@ -23,6 +23,8 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Speedometer: GPS speed in mph (top-left) while driving; hides after a minute stopped | `src/components/Speedometer.tsx` |
 | Live road alerts: **Report** → Police / Crash / Object on road, placed at your spot; last 1 hour (a duplicate report or "Still there" restarts the hour, never adds; 3 h max), removed by 2 "Not there" (or the reporter); 3 alerts/hour, 10/day per person; deleted a day after expiry | `src/components/RoadAlerts.tsx`, `src/lib/roadAlerts.ts`, migration 0015 |
 | Nearby categories: chips under the search bar (Gas, Fast food, Restaurants, Groceries, Coffee, EV charging, Parking, Pharmacy) → pins + list for the visible area, tap for Directions (Mapbox Search Box category API; only the map centre/area is sent) | `src/components/Categories.tsx`, `src/lib/categories.ts` |
+| Turn-by-turn (Expo Go version): **Start** on a route → next-turn banner, spoken directions (iPhone voices via expo-speech; best installed en-US voice), spoken heads-up for plate readers/speed cameras/road alerts ~400 m ahead, map follows you, rerouting when off the line (still picks the route with fewest plate readers), screen stays awake, mute. App must stay open. | `src/lib/navEngine.ts`, `src/lib/voice.ts`, `src/components/Navigation.tsx` |
+| Settings (gear in the search bar): Appearance Automatic / Light / Dark (saved on the phone), Voice guidance on/off. Speaker button under the locate button mutes/unmutes voice from the map | `src/components/SettingsSheet.tsx`, `src/theme.ts` |
 | Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone
@@ -81,8 +83,7 @@ across a freeway doesn't count for the freeway. If every route passes a camera, 
 asks Mapbox for a **detour** that routes around those cameras (`exclude=point(...)` on the
 spot of the route nearest each camera, so it blocks the road actually driven; up to 50 points,
 up to 6 tries) and adds it as an extra card when it passes fewer
-(`src/lib/fewerCameras.ts`). Turn-by-turn navigation needs the Mapbox
-Navigation SDK, which can't run inside Expo Go, so **Start** shows a note for now.
+(`src/lib/fewerCameras.ts`). **Start** runs the built-in turn-by-turn guidance (see the feature table); the Mapbox Navigation SDK (lock-screen guidance, CarPlay) needs a native build.
 
 ## Community reports
 

@@ -62,6 +62,7 @@ export function RouteSheet({
   loading,
   error,
   searchingFewer = false,
+  onStart,
 }: {
   theme: T;
   routes: RouteOption[];
@@ -77,6 +78,8 @@ export function RouteSheet({
   error: string | null;
   /** True while looking for a detour that passes fewer cameras. */
   searchingFewer?: boolean;
+  /** Start turn-by-turn on the selected route. */
+  onStart?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [startNote, setStartNote] = useState(false);
@@ -180,7 +183,7 @@ export function RouteSheet({
         </Txt>
       ) : null}
       <Pressable
-        onPress={() => setStartNote(true)}
+        onPress={() => (onStart ? onStart() : setStartNote(true))}
         disabled={routes.length === 0}
         accessibilityRole="button"
         style={({ pressed }) => [

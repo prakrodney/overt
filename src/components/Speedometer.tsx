@@ -72,7 +72,7 @@ export function useSpeed(enabled: boolean, onMove?: (fix: Fix) => void) {
 }
 
 /** Round speed readout (top-left, opposite the locate button). Shows while driving; hides after a minute stopped. */
-export function Speedometer({ theme, mph, top }: { theme: T; mph: number | null; top: number }) {
+export function Speedometer({ theme, mph, top, bottom }: { theme: T; mph: number | null; top?: number; bottom?: number }) {
   const [visible, setVisible] = useState(false);
   const lastMoving = useRef(0);
 
@@ -104,7 +104,7 @@ export function Speedometer({ theme, mph, top }: { theme: T; mph: number | null;
       style={[
         styles.dial,
         {
-          top,
+          ...(bottom != null ? { bottom } : { top }),
           backgroundColor: theme.control,
           borderColor: theme.accentIcon,
           shadowColor: theme.shadowColor,

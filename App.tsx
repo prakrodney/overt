@@ -14,7 +14,7 @@ import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
-import { CloseIcon, LocateIcon, PlusIcon } from "./src/components/Icons";
+import { CloseIcon, GearIcon, LocateIcon, PlusIcon } from "./src/components/Icons";
 import { LocationIntro } from "./src/components/LocationIntro";
 import { ReviewScreen } from "./src/components/ReviewScreen";
 import { PlacementPin, ReportSheet } from "./src/components/ReportSheet";
@@ -25,6 +25,11 @@ import { WhereToSheet } from "./src/components/WhereToSheet";
 import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
 import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Categories";
 import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
+import { NavBanner, NavFooter, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
+import { SettingsSheet } from "./src/components/SettingsSheet";
+import { NavEngine, type Hazard, type NavUpdate } from "./src/lib/navEngine";
+import { loadMuted, say, setMuted as setVoiceMuted, stopSpeaking } from "./src/lib/voice";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { ALERT_LABEL, fetchRoadAlerts, reportRoadAlert, type RoadAlert, type RoadAlertType } from "./src/lib/roadAlerts";
 import { Speedometer, useSpeed } from "./src/components/Speedometer";
 import { Txt } from "./src/components/Txt";
@@ -188,7 +193,9 @@ function MapScreen() {
 
   // ---- Speed (GPS) — also keeps "your location" fresh for directions -----------
   const lastLocRef = useRef<{ lat: number; lon: number } | null>(null);
+  const navFixRef = useRef<((f: { lat: number; lon: number; heading: number | null; mph: number | null }) => void) | null>(null);
   const mph = useSpeed(startRegion != null && !locationDenied, (fix) => {
+    navFixRef.current?.(fix);
     const { lat, lon } = fix;
     const prev = lastLocRef.current;
     // Update the stored location after ~150 m of movement (avoids re-rendering every second).
@@ -493,6 +500,158 @@ function MapScreen() {
   );
 
   // ---- Report new equipment ----------------------------------------------------
+  // ---- Turn-by-turn navigation -----------------------------------------------------
+  const [nav, setNav] = useState<{ dest: Place; fewest: boolean; tolls: boolean } | null>(null);
+  const [navRoute, setNavRoute] = useState<RouteOption | null>(null);
+  const [navUpdate, setNavUpdate] = useState<NavUpdate | null>(null);
+  const [rerouting, setRerouting] = useState(false);
+  const [follow, setFollow] = useState(true);
+  const [muted, setMutedState] = useState(false);
+  const [navFooterH, setNavFooterH] = useState(0);
+  const engineRef = useRef<NavEngine | null>(null);
+  const navStateRef = useRef(nav);
+  navStateRef.current = nav;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const reroutingRef = useRef(false);
+  const lastRerouteRef = useRef(0);
+  const headingRef = useRef(0);
+  const hazardsRef = useRef<{ cams: Hazard[]; alerts: Hazard[] }>({ cams: [], alerts: [] });
+  const navActive = nav != null;
+
+  useEffect(() => {
+    loadMuted().then(setMutedState);
+  }, []);
+  const toggleMuted = useCallback((m: boolean) => {
+    setMutedState(m);
+    setVoiceMuted(m);
+  }, []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const applyHazards = useCallback(() => {
+    engineRef.current?.setHazards([...hazardsRef.current.cams, ...hazardsRef.current.alerts]);
+  }, []);
+
+  // Cameras on the route get a spoken heads-up ~400 m before you reach them.
+  const loadRouteHazards = useCallback(
+    (r: RouteOption) => {
+      hazardsRef.current.cams = [];
+      camerasAlongRoutesDetailed([r])
+        .then(([cams]) => {
+          hazardsRef.current.cams = cams.map((c) => ({
+            key: `cam${c.id}`,
+            lat: c.lat,
+            lon: c.lon,
+            text: c.speed ? "Speed camera ahead." : "License plate reader ahead.",
+          }));
+          applyHazards();
+        })
+        .catch(() => {});
+    },
+    [applyHazards]
+  );
+
+  // Live road alerts along the route (police, crashes, objects).
+  useEffect(() => {
+    if (!navActive) return;
+    const words = { police: "Police reported ahead.", crash: "Crash reported ahead.", hazard: "Object on the road reported ahead." };
+    hazardsRef.current.alerts = alerts.map((a) => ({ key: `ra${a.id}`, lat: a.lat, lon: a.lon, text: words[a.type] }));
+    applyHazards();
+  }, [alerts, navActive, navRoute, applyHazards]);
+
+  const reroute = useCallback(
+    async (at: { lat: number; lon: number }) => {
+      const n = navStateRef.current;
+      if (!n) return;
+      reroutingRef.current = true;
+      lastRerouteRef.current = Date.now();
+      setRerouting(true);
+      say("Rerouting.");
+      try {
+        const from = { latitude: at.lat, longitude: at.lon };
+        const to = { latitude: n.dest.lat, longitude: n.dest.lon };
+        const rs = await fetchRoutes(from, to, { avoidTolls: n.tolls });
+        // Keep avoiding plate readers: take the new option that passes the fewest.
+        const all = await camerasAlongRoutesDetailed(rs).catch(() => rs.map(() => []));
+        const cams = all.map((x) => x.filter((c) => !c.speed));
+        let j = 0;
+        cams.forEach((c, i) => c.length < cams[j].length && (j = i));
+        let best = rs[j];
+        if (n.fewest && cams[j].length > 0) {
+          const f = await findFewerCamerasRoute(from, to, rs, cams, { avoidTolls: n.tolls }).catch(() => null);
+          if (f && f.cameras < cams[j].length) best = f.route;
+        }
+        if (!navStateRef.current) return;
+        engineRef.current = new NavEngine(best);
+        setNavRoute(best);
+        loadRouteHazards(best);
+      } catch {
+        showToast("Couldn't find a new route. Keep going and we'll try again.");
+      } finally {
+        reroutingRef.current = false;
+        setRerouting(false);
+      }
+    },
+    [loadRouteHazards, showToast]
+  );
+
+  // Every GPS fix while navigating: progress, voice, camera follow, off-route check.
+  navFixRef.current = (fix) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (fix.heading != null && (fix.mph ?? 0) > 3) headingRef.current = fix.heading;
+    const u = engine.update(fix);
+    setNavUpdate(u);
+    u.speak.forEach(say);
+    if (followRef.current && !reporting) {
+      mapRef.current?.animateCamera(
+        { center: { latitude: fix.lat, longitude: fix.lon }, heading: headingRef.current, altitude: 650, pitch: 0 },
+        { duration: 900 }
+      );
+    }
+    if (u.offRoute && !u.arrived && !reroutingRef.current && Date.now() - lastRerouteRef.current > 15_000) {
+      reroute(fix);
+    }
+  };
+
+  const startNav = useCallback(() => {
+    const r = routes?.[selectedRoute];
+    if (!r || !searchPin) return;
+    engineRef.current = new NavEngine(r);
+    setNavRoute(r);
+    setNav({ dest: searchPin, fewest: r.id === "fewest", tolls: avoidTolls });
+    setNavUpdate(null);
+    setFollow(true);
+    setSelected(null);
+    setSelectedAlert(null);
+    hazardsRef.current.alerts = [];
+    loadRouteHazards(r);
+    activateKeepAwakeAsync("nav").catch(() => {});
+    if (userLoc) {
+      mapRef.current?.animateCamera(
+        { center: { latitude: userLoc.lat, longitude: userLoc.lon }, altitude: 650, pitch: 0 },
+        { duration: 700 }
+      );
+    }
+  }, [routes, selectedRoute, searchPin, avoidTolls, loadRouteHazards, userLoc]);
+
+  const endNav = useCallback(() => {
+    engineRef.current = null;
+    setNav(null);
+    setNavRoute(null);
+    setNavUpdate(null);
+    stopSpeaking();
+    deactivateKeepAwake("nav");
+    exitRoutes();
+    setSearchPin(null);
+    if (userLoc) {
+      mapRef.current?.animateCamera(
+        { center: { latitude: userLoc.lat, longitude: userLoc.lon }, heading: 0, altitude: 3500, pitch: 0 },
+        { duration: 700 }
+      );
+    }
+  }, [exitRoutes, userLoc]);
+
   // Report button: live alerts go in with one tap at your spot; cameras use the pin flow.
   const sendAlert = useCallback(
     async (type: RoadAlertType) => {
@@ -622,6 +781,9 @@ function MapScreen() {
         style={styles.fill}
         initialRegion={startRegion}
         onRegionChangeComplete={onRegionChangeComplete}
+        onPanDrag={() => {
+          if (navActive && followRef.current) setFollow(false);
+        }}
         onPress={() => {
           Keyboard.dismiss();
           if (!reporting) {
@@ -674,7 +836,28 @@ function MapScreen() {
             onPress={selectPoint}
           />
         ))}
-        {routes
+        {navActive && navRoute
+          ? [
+              <Polyline
+                key={`nav-casing-${navRoute.id}-${navRoute.distanceM}`}
+                coordinates={navRoute.coords}
+                strokeColor={theme.routeCasing}
+                strokeWidth={12}
+                lineCap="round"
+                lineJoin="round"
+                zIndex={20}
+              />,
+              <Polyline
+                key={`nav-line-${navRoute.id}-${navRoute.distanceM}`}
+                coordinates={navRoute.coords}
+                strokeColor={theme.route}
+                strokeWidth={8}
+                lineCap="round"
+                lineJoin="round"
+                zIndex={21}
+              />,
+            ]
+          : routes
           ? // Unselected routes first (grey), the selected one on top (accent), each with a casing.
             routes
               .map((r, i) => ({ r, i }))
@@ -748,11 +931,18 @@ function MapScreen() {
       </MapView>
       ) : null}
 
-      {!reporting ? <Speedometer theme={theme} mph={mph} top={controlsTop} /> : null}
+      {!reporting ? (
+        navActive ? (
+          <Speedometer theme={theme} mph={mph} bottom={navFooterH + 16} />
+        ) : (
+          <Speedometer theme={theme} mph={mph} top={controlsTop} />
+        )
+      ) : null}
 
       {/* Recenter */}
       <View
-        style={[styles.controls, { top: controlsTop, backgroundColor: theme.control }, shadow]}
+        pointerEvents={navActive ? "none" : "auto"}
+        style={[styles.controls, { top: controlsTop, backgroundColor: theme.control, opacity: navActive ? 0 : 1 }, shadow]}
       >
         <Pressable
           onPress={() => flyToUser(true)}
@@ -762,10 +952,39 @@ function MapScreen() {
         >
           <LocateIcon color={theme.accentIcon} />
         </Pressable>
+        <View style={{ height: StyleSheet.hairlineWidth * 2, backgroundColor: theme.divider, marginHorizontal: 10 }} />
+        <Pressable
+          onPress={() => {
+            toggleMuted(!muted);
+            showToast(muted ? "Voice guidance on" : "Voice guidance off");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={muted ? "Turn voice guidance on" : "Turn voice guidance off"}
+          style={({ pressed }) => [styles.controlButton, { opacity: pressed ? 0.6 : 1 }]}
+        >
+          <SpeakerIcon muted={muted} color={muted ? theme.textSecondary : theme.accentIcon} />
+        </Pressable>
       </View>
 
+      {navActive ? <NavBanner theme={theme} update={navUpdate} rerouting={rerouting} /> : null}
+      {navActive && toast ? (
+        <View style={[styles.top, { top: insets.top + 150 }]} pointerEvents="none">
+          <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
+            <Txt weight="medium" style={{ color: theme.text, fontSize: 14 }}>
+              {toast}
+            </Txt>
+          </View>
+        </View>
+      ) : null}
+      {navActive && !follow ? (
+        <RecenterPill theme={theme} bottom={navFooterH + 16} onPress={() => setFollow(true)} />
+      ) : null}
+
       {/* Search, or the from/to card while previewing routes */}
-      <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
+      <View
+        style={[styles.top, { top: insets.top + 8, display: navActive ? "none" : "flex" }]}
+        pointerEvents="box-none"
+      >
         {reporting ? (
           <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
             <Txt weight="semibold" style={{ color: theme.text, fontSize: 15 }}>
@@ -789,6 +1008,22 @@ function MapScreen() {
             focusSignal={searchFocus}
             clearOnPick={settingSlot != null}
             onFocusChange={setSearchFocused}
+            rightAccessory={
+              settingSlot ? null : (
+                <Pressable
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setSettingsOpen(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Settings"
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.gear, { backgroundColor: theme.subtle, opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <GearIcon color={theme.text} />
+                </Pressable>
+              )
+            }
             onAdminCode={(code) => {
               claimAdmin(code)
                 .then(() => {
@@ -852,7 +1087,7 @@ function MapScreen() {
       {reporting ? <PlacementPin theme={theme} /> : null}
 
       {/* Report button (Home board: white pill, bottom right) */}
-      {!reporting && !inRouteMode && !selected && !selectedAlert && !searchPin ? (
+      {navActive || (!reporting && !inRouteMode && !selected && !selectedAlert && !searchPin) ? (
         <Pressable
           onPress={() =>
             ActionSheetIOS.showActionSheetWithOptions(
@@ -876,7 +1111,11 @@ function MapScreen() {
           accessibilityHint="You can also long-press the map"
           style={({ pressed }) => [
             styles.reportButton,
-            { bottom: homeH ? homeH + 24 : insets.bottom + 28, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1 },
+            {
+              bottom: navActive ? navFooterH + 16 : homeH ? homeH + 24 : insets.bottom + 28,
+              backgroundColor: theme.control,
+              opacity: pressed ? 0.8 : 1,
+            },
             shadow,
           ]}
         >
@@ -911,6 +1150,14 @@ function MapScreen() {
         </Pressable>
       ) : null}
 
+      <SettingsSheet
+        visible={settingsOpen}
+        theme={theme}
+        voiceOn={!muted}
+        onVoiceChange={(on) => toggleMuted(!on)}
+        onClose={() => setSettingsOpen(false)}
+      />
+
       <ReviewScreen
         visible={reviewOpen}
         theme={theme}
@@ -937,6 +1184,15 @@ function MapScreen() {
             setReportError(null);
           }}
         />
+      ) : navActive ? (
+        <NavFooter
+          theme={theme}
+          update={navUpdate}
+          muted={muted}
+          onToggleMute={() => toggleMuted(!muted)}
+          onEnd={endNav}
+          onLayoutHeight={setNavFooterH}
+        />
       ) : inRouteMode ? (
         <RouteSheet
           theme={theme}
@@ -955,6 +1211,7 @@ function MapScreen() {
           loading={routeLoading}
           error={routeError}
           searchingFewer={searchingFewer}
+          onStart={startNav}
         />
       ) : searchPin && !selected ? (
         <PlaceSheet
@@ -1028,6 +1285,7 @@ const styles = StyleSheet.create({
   top: { position: "absolute", left: 16, right: 16, gap: 10 },
   toast: { borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12 },
   controls: { position: "absolute", right: 16, borderRadius: 16 },
+  gear: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   attribution: { position: "absolute", right: 12 },
   countBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },

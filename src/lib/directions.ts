@@ -6,6 +6,20 @@ import { MAPBOX_TOKEN_OVERRIDE, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from ".
 
 export type LatLng = { latitude: number; longitude: number };
 
+/** One leg of turn-by-turn guidance: drive this stretch, then do the maneuver at its end. */
+export type NavStep = {
+  distanceM: number;
+  durationSec: number;
+  name: string;
+  coords: LatLng[];
+  /** The maneuver at the START of this step (e.g. "Turn right onto Elam Road"). */
+  maneuver: { type: string; modifier?: string; instruction: string };
+  /** Spoken while driving this step; `before` = metres before the step's end. */
+  voice: { before: number; text: string }[];
+  /** Banner shown while driving this step, describing the maneuver at its end. */
+  banner: { before: number; text: string; type?: string; modifier?: string; then?: string }[];
+};
+
 export type RouteOption = {
   id: string;
   coords: LatLng[];
@@ -13,6 +27,7 @@ export type RouteOption = {
   distanceM: number;
   hasToll: boolean;
   summary: string;
+  steps: NavStep[];
 };
 
 let tokenPromise: Promise<string> | null = null;
@@ -53,7 +68,10 @@ export async function fetchRoutes(
     alternatives: opts.alternatives === false ? "false" : "true",
     geometries: "geojson",
     overview: "full",
-    steps: "true", // needed to spot toll roads (intersection classes)
+    steps: "true", // turn-by-turn steps (also used to spot toll roads)
+    voice_instructions: "true",
+    banner_instructions: "true",
+    voice_units: "imperial",
     access_token: token,
   });
   const exclude: string[] = [];
@@ -85,6 +103,35 @@ export async function fetchRoutes(
       )
     ),
     summary: (r.legs as any[]).map((l) => l.summary).filter(Boolean).join(", "),
+    steps: (r.legs as any[]).flatMap((leg) =>
+      (leg.steps as any[]).map(
+        (st): NavStep => ({
+          distanceM: st.distance,
+          durationSec: st.duration,
+          name: st.name ?? "",
+          coords: ((st.geometry?.coordinates ?? []) as [number, number][]).map(([lon, lat]) => ({
+            latitude: lat,
+            longitude: lon,
+          })),
+          maneuver: {
+            type: st.maneuver?.type ?? "",
+            modifier: st.maneuver?.modifier,
+            instruction: st.maneuver?.instruction ?? "",
+          },
+          voice: ((st.voiceInstructions ?? []) as any[]).map((v) => ({
+            before: v.distanceAlongGeometry,
+            text: v.announcement,
+          })),
+          banner: ((st.bannerInstructions ?? []) as any[]).map((b) => ({
+            before: b.distanceAlongGeometry,
+            text: b.primary?.text ?? "",
+            type: b.primary?.type,
+            modifier: b.primary?.modifier,
+            then: b.secondary?.text,
+          })),
+        })
+      )
+    ),
   }));
 }
 

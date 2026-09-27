@@ -1,4 +1,6 @@
+import { useSyncExternalStore } from "react";
 import { useColorScheme } from "react-native";
+import * as SecureStore from "expo-secure-store";
 
 // Colors lifted from the Overt screen designs (light + dark boards).
 const light = {
@@ -114,8 +116,38 @@ const dark: typeof light = {
 
 export type Theme = typeof light;
 
+// ---- Appearance setting: follow the iPhone, or always light / always dark ----------
+export type Appearance = "system" | "light" | "dark";
+const APPEARANCE_KEY = "overt.appearance.v1";
+let appearance: Appearance = "system";
+const listeners = new Set<() => void>();
+
+SecureStore.getItemAsync(APPEARANCE_KEY)
+  .then((v) => {
+    if (v === "light" || v === "dark" || v === "system") setAppearance(v, false);
+  })
+  .catch(() => {});
+
+export function setAppearance(a: Appearance, save = true) {
+  appearance = a;
+  listeners.forEach((l) => l());
+  if (save) SecureStore.setItemAsync(APPEARANCE_KEY, a).catch(() => {});
+}
+
+export function useAppearance(): Appearance {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => appearance
+  );
+}
+
 export function useTheme(): Theme & { isDark: boolean } {
-  const isDark = useColorScheme() === "dark";
+  const system = useColorScheme();
+  const pref = useAppearance();
+  const isDark = pref === "system" ? system === "dark" : pref === "dark";
   return { ...(isDark ? dark : light), isDark };
 }
 
