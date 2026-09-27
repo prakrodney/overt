@@ -26,12 +26,15 @@ export function ReportSheet({
   error,
   onSubmit,
   onCancel,
+  allowSpeed = true,
 }: {
   theme: T;
   busy: boolean;
   error: string | null;
   onSubmit: (directionDeg: number | null, category: "alpr" | "speed_camera") => void;
   onCancel: () => void;
+  /** Speed cameras are a Pro feature; free users report plate readers only. */
+  allowSpeed?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [dir, setDir] = useState<number | null>(null);
@@ -69,7 +72,9 @@ export function ReportSheet({
               { k: "alpr", label: "Plate reader (ALPR)" },
               { k: "speed_camera", label: "Speed camera" },
             ] as const
-          ).map(({ k, label }) => {
+          )
+            .filter((x) => allowSpeed || x.k === "alpr")
+            .map(({ k, label }) => {
             const on = kind === k;
             return (
               <Pressable

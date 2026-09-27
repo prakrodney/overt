@@ -7,16 +7,17 @@ import type { Place } from "./geocode";
 export type SavedPlace = Pick<Place, "id" | "name" | "subtitle" | "lat" | "lon">;
 export type SavedPlaces = { home: SavedPlace | null; work: SavedPlace | null; recents: SavedPlace[] };
 
-const KEY = "overt.places.v1";
+const KEY = "overt.places.v1"; // Home / Work
+const RECENTS_KEY = "overt.recents.v1"; // compact list, kept separate (Keychain values should stay under ~2 KB)
 const INTRO_KEY = "overt.introSeen.v1";
-const MAX_RECENTS = 2;
+const MAX_RECENTS = 10;
 
 export const EMPTY_PLACES: SavedPlaces = { home: null, work: null, recents: [] };
 
 const slim = (p: Place | SavedPlace): SavedPlace => ({
-  id: p.id,
-  name: p.name.slice(0, 80),
-  subtitle: p.subtitle.slice(0, 80),
+  id: p.id.slice(0, 32),
+  name: p.name.slice(0, 60),
+  subtitle: p.subtitle.slice(0, 50),
   lat: Math.round(p.lat * 1e6) / 1e6,
   lon: Math.round(p.lon * 1e6) / 1e6,
 });
@@ -24,9 +25,20 @@ const slim = (p: Place | SavedPlace): SavedPlace => ({
 export async function loadSavedPlaces(): Promise<SavedPlaces> {
   try {
     const raw = await SecureStore.getItemAsync(KEY);
-    if (!raw) return EMPTY_PLACES;
-    const v = JSON.parse(raw);
-    return { home: v.home ?? null, work: v.work ?? null, recents: Array.isArray(v.recents) ? v.recents : [] };
+    const v = raw ? JSON.parse(raw) : {};
+    const rraw = await SecureStore.getItemAsync(RECENTS_KEY).catch(() => null);
+    const recents: SavedPlace[] = rraw
+      ? (JSON.parse(rraw) as [string, string, string, number, number][]).map(([id, name, subtitle, lat, lon]) => ({
+          id,
+          name,
+          subtitle,
+          lat,
+          lon,
+        }))
+      : Array.isArray(v.recents)
+        ? v.recents // older app versions kept recents with Home / Work
+        : [];
+    return { home: v.home ?? null, work: v.work ?? null, recents };
   } catch {
     return EMPTY_PLACES;
   }
@@ -34,7 +46,11 @@ export async function loadSavedPlaces(): Promise<SavedPlaces> {
 
 async function save(p: SavedPlaces) {
   try {
-    await SecureStore.setItemAsync(KEY, JSON.stringify(p));
+    await SecureStore.setItemAsync(KEY, JSON.stringify({ home: p.home, work: p.work }));
+    await SecureStore.setItemAsync(
+      RECENTS_KEY,
+      JSON.stringify(p.recents.map((r) => [r.id, r.name, r.subtitle, r.lat, r.lon]))
+    );
   } catch {
     // Not fatal: the places just won't survive a restart.
   }

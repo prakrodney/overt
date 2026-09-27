@@ -14,7 +14,7 @@ import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
-import { CloseIcon, GearIcon, LocateIcon, PlusIcon } from "./src/components/Icons";
+import { CloseIcon, GearIcon, LocateIcon, PlusIcon, PoliceIcon } from "./src/components/Icons";
 import { LocationIntro } from "./src/components/LocationIntro";
 import { ReviewScreen } from "./src/components/ReviewScreen";
 import { PlacementPin, ReportSheet } from "./src/components/ReportSheet";
@@ -27,6 +27,9 @@ import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Cate
 import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
 import { NavBanner, NavPanel, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
 import { SettingsSheet } from "./src/components/SettingsSheet";
+import { Paywall } from "./src/components/Paywall";
+import { setAdminPro, usePro } from "./src/lib/pro";
+import { isSpeedCamera } from "./src/lib/cameras";
 import { NavEngine, type Hazard, type NavUpdate } from "./src/lib/navEngine";
 import { loadMuted, say, setMuted as setVoiceMuted, stopSpeaking } from "./src/lib/voice";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -85,9 +88,19 @@ function MapScreen() {
   const [region, setRegion] = useState<Region>(US_REGION);
   const [layer, setLayer] = useState<CameraLayer>(EMPTY);
   const [selected, setSelected] = useState<CameraPoint | null>(null);
+  // ---- Free vs Pro ----------------------------------------------------------------
+  const pro = usePro();
+  const isPro = pro.isPro;
+  const proRef = useRef(isPro);
+  proRef.current = isPro;
+  const [paywall, setPaywall] = useState<{ reason: string | null } | null>(null);
+  const openPaywall = useCallback((reason: string | null = null) => setPaywall({ reason }), []);
   // Live road alerts (police / crash / object on road), each lasting an hour.
   const [alerts, setAlerts] = useState<RoadAlert[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<RoadAlert | null>(null);
+  // Crashes and objects are free for everyone; seeing police is part of Pro.
+  const visibleAlerts = useMemo(() => (isPro ? alerts : alerts.filter((a) => a.type !== "police")), [alerts, isPro]);
+  const hiddenPolice = isPro ? 0 : alerts.length - visibleAlerts.length;
   const [searchPin, setSearchPin] = useState<Place | null>(null);
   const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -221,7 +234,10 @@ function MapScreen() {
   const [admin, setAdmin] = useState<{ isAdmin: boolean; pending: number }>({ isAdmin: false, pending: 0 });
   const [reviewOpen, setReviewOpen] = useState(false);
   const refreshAdmin = useCallback(() => {
-    adminStatus().then((s) => setAdmin({ isAdmin: s.is_admin, pending: s.pending ?? 0 }));
+    adminStatus().then((s) => {
+      setAdmin({ isAdmin: s.is_admin, pending: s.pending ?? 0 });
+      setAdminPro(s.is_admin);
+    });
   }, []);
   useEffect(() => {
     refreshAdmin();
@@ -502,9 +518,17 @@ function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLoc, places.home?.id, places.work?.id]);
 
+  // Free version: plate readers only (speed cameras are part of Pro).
+  const shownLayer = useMemo(
+    () =>
+      isPro
+        ? layer
+        : { ...layer, points: layer.points.filter((p) => !isSpeedCamera(p)), clusters: layer.clusters.filter((c) => !isSpeedCamera(c)) },
+    [layer, isPro]
+  );
   const nearbyCount = useMemo(
-    () => (startRegion ? layer.points.length + layer.clusters.reduce((n, c) => n + c.count, 0) : null),
-    [layer, startRegion]
+    () => (startRegion ? shownLayer.points.length + shownLayer.clusters.reduce((n, c) => n + c.count, 0) : null),
+    [shownLayer, startRegion]
   );
 
   // ---- Report new equipment ----------------------------------------------------
@@ -546,7 +570,7 @@ function MapScreen() {
       hazardsRef.current.cams = [];
       camerasAlongRoutesDetailed([r])
         .then(([cams]) => {
-          hazardsRef.current.cams = cams.map((c) => ({
+          hazardsRef.current.cams = cams.filter((c) => !c.speed || proRef.current).map((c) => ({
             key: `cam${c.id}`,
             lat: c.lat,
             lon: c.lon,
@@ -563,9 +587,9 @@ function MapScreen() {
   useEffect(() => {
     if (!navActive) return;
     const words = { police: "Police reported ahead.", crash: "Crash reported ahead.", hazard: "Object on the road reported ahead." };
-    hazardsRef.current.alerts = alerts.map((a) => ({ key: `ra${a.id}`, lat: a.lat, lon: a.lon, text: words[a.type] }));
+    hazardsRef.current.alerts = visibleAlerts.map((a) => ({ key: `ra${a.id}`, lat: a.lat, lon: a.lon, text: words[a.type] }));
     applyHazards();
-  }, [alerts, navActive, navRoute, applyHazards]);
+  }, [visibleAlerts, navActive, navRoute, applyHazards]);
 
   const reroute = useCallback(
     async (at: { lat: number; lon: number }) => {
@@ -574,7 +598,7 @@ function MapScreen() {
       reroutingRef.current = true;
       lastRerouteRef.current = Date.now();
       setRerouting(true);
-      say("Rerouting.");
+      if (proRef.current) say("Rerouting.");
       try {
         const from = { latitude: at.lat, longitude: at.lon };
         const to = { latitude: n.dest.lat, longitude: n.dest.lon };
@@ -610,7 +634,7 @@ function MapScreen() {
     if (fix.heading != null && (fix.mph ?? 0) > 3) headingRef.current = fix.heading;
     const u = engine.update(fix);
     setNavUpdate(u);
-    u.speak.forEach(say);
+    if (proRef.current) u.speak.forEach(say);
     if (followRef.current && !reporting) {
       mapRef.current?.animateCamera(
         { center: { latitude: fix.lat, longitude: fix.lon }, heading: headingRef.current, altitude: 650, pitch: 0 },
@@ -669,7 +693,9 @@ function MapScreen() {
         showToast(
           a.merged
             ? `Thanks! ${ALERT_LABEL[type]} was already reported here, so we kept it up for another hour.`
-            : `Thanks! ${ALERT_LABEL[type]} will show here for the next hour.`
+            : type === "police" && !proRef.current
+              ? "Thanks! Police reported for the next hour. Seeing police alerts is part of Pro."
+              : `Thanks! ${ALERT_LABEL[type]} will show here for the next hour.`
         );
         setAlerts((xs) => [a, ...xs.filter((x) => x.id !== a.id)]);
       } catch (e: any) {
@@ -814,15 +840,15 @@ function MapScreen() {
         legalLabelInsets={{ top: 0, right: 0, left: 12, bottom: homeH || (selected || searchPin ? 0 : insets.bottom) }}
       >
         {showCones ? (
-          <DirectionCones points={layer.points} selectedId={selected?.id ?? null} zoom={zoom} theme={theme} />
+          <DirectionCones points={shownLayer.points} selectedId={selected?.id ?? null} zoom={zoom} theme={theme} />
         ) : null}
-        {layer.clusters.map((c) => (
+        {shownLayer.clusters.map((c) => (
           <ClusterMarker key={`${c.id}-${c.count}`} cluster={c} theme={theme} onPress={zoomIntoCluster} />
         ))}
         {activeCat && !inRouteMode
           ? catResults.map((p) => <CategoryPin key={`cp-${p.id}`} place={p} theme={theme} onPress={(x) => goToPlace(x)} />)
           : null}
-        {alerts.map((a) => (
+        {visibleAlerts.map((a) => (
           <RoadAlertMarker
             key={`ra-${a.id}`}
             alert={a}
@@ -835,7 +861,7 @@ function MapScreen() {
             }}
           />
         ))}
-        {layer.points.map((p) => (
+        {shownLayer.points.map((p) => (
           <CameraMarker
             key={p.id}
             point={p}
@@ -963,14 +989,15 @@ function MapScreen() {
         <View style={{ height: StyleSheet.hairlineWidth * 2, backgroundColor: theme.divider, marginHorizontal: 10 }} />
         <Pressable
           onPress={() => {
+            if (!isPro) return openPaywall("Voice guidance is part of DeCam GPS Pro.");
             toggleMuted(!muted);
             showToast(muted ? "Voice guidance on" : "Voice guidance off");
           }}
           accessibilityRole="button"
-          accessibilityLabel={muted ? "Turn voice guidance on" : "Turn voice guidance off"}
+          accessibilityLabel={!isPro ? "Voice guidance (Pro)" : muted ? "Turn voice guidance on" : "Turn voice guidance off"}
           style={({ pressed }) => [styles.controlButton, { opacity: pressed ? 0.6 : 1 }]}
         >
-          <SpeakerIcon muted={muted} color={muted ? theme.textSecondary : theme.accentIcon} />
+          <SpeakerIcon muted={muted || !isPro} color={muted || !isPro ? theme.textSecondary : theme.accentIcon} />
         </Pressable>
       </View>
 
@@ -1094,6 +1121,40 @@ function MapScreen() {
 
       {reporting ? <PlacementPin theme={theme} /> : null}
 
+      {/* Free version: a small hint when police have been reported in view */}
+      {hiddenPolice > 0 && !reporting && !selected && !selectedAlert && (navActive || (!inRouteMode && !searchPin)) ? (
+        <Pressable
+          onPress={() =>
+            openPaywall(
+              `${hiddenPolice === 1 ? "1 police report is" : `${hiddenPolice} police reports are`} on the map near you right now.`
+            )
+          }
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.policeHint,
+            {
+              // While navigating the speedometer sits bottom-left, so go above it.
+              bottom: navActive ? navFooterH + 104 : homeH ? homeH + 24 : insets.bottom + 28,
+              backgroundColor: theme.control,
+              opacity: pressed ? 0.8 : 1,
+            },
+            shadow,
+          ]}
+        >
+          <View style={[styles.policeDot, { backgroundColor: theme.policeFill }]}>
+            <PoliceIcon size={14} color={theme.alertGlyph} />
+          </View>
+          <Txt weight="semibold" style={{ fontSize: 14, color: theme.text }}>
+            {hiddenPolice} police nearby
+          </Txt>
+          <View style={[styles.proMini, { backgroundColor: theme.accent }]}>
+            <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
+              PRO
+            </Txt>
+          </View>
+        </Pressable>
+      ) : null}
+
       {/* Report button (Home board: white pill, bottom right) */}
       {navActive || (!reporting && !inRouteMode && !selected && !selectedAlert && !searchPin) ? (
         <Pressable
@@ -1102,7 +1163,9 @@ function MapScreen() {
               {
                 title: "What do you see?",
                 message: "Police, crashes and objects are reported where you are now and last an hour.",
-                options: ["Police", "Crash", "Object on road", "Camera (plate reader or speed)", "Cancel"],
+                options: isPro
+                  ? ["Police", "Crash", "Object on road", "Camera (plate reader or speed)", "Cancel"]
+                  : ["Police", "Crash", "Object on road", "Plate reader camera", "Cancel"],
                 cancelButtonIndex: 4,
                 userInterfaceStyle: theme.isDark ? "dark" : "light",
               },
@@ -1158,11 +1221,36 @@ function MapScreen() {
         </Pressable>
       ) : null}
 
+      <Paywall
+        visible={paywall != null}
+        theme={theme}
+        reason={paywall?.reason}
+        onClose={() => setPaywall(null)}
+        onStarted={() => {
+          setPaywall(null);
+          showToast("Your 3-day free trial of DeCam GPS Pro has started.");
+          setTimeout(() => load(regionRef.current), 150);
+        }}
+      />
+
       <SettingsSheet
+        pro={pro}
+        isAdmin={admin.isAdmin}
+        onOpenPro={() => {
+          setSettingsOpen(false);
+          setTimeout(() => openPaywall(), 400);
+        }}
         visible={settingsOpen}
         theme={theme}
-        voiceOn={!muted}
-        onVoiceChange={(on) => toggleMuted(!on)}
+        voiceOn={!muted && isPro}
+        onVoiceChange={(on) => {
+          if (!isPro) {
+            setSettingsOpen(false);
+            setTimeout(() => openPaywall("Voice guidance is part of DeCam GPS Pro."), 400);
+            return;
+          }
+          toggleMuted(!on);
+        }}
         onClose={() => setSettingsOpen(false)}
         historyCount={places.recents.length}
         onClearHistory={() => {
@@ -1192,6 +1280,7 @@ function MapScreen() {
           busy={reportBusy}
           error={reportError}
           onSubmit={submitReport}
+          allowSpeed={isPro}
           onCancel={() => {
             setReporting(false);
             setReportError(null);
@@ -1202,8 +1291,12 @@ function MapScreen() {
           theme={theme}
           update={navUpdate}
           route={navRoute}
-          muted={muted}
-          onToggleMute={() => toggleMuted(!muted)}
+          muted={muted || !isPro}
+          locked={!isPro}
+          onToggleMute={() => {
+            if (!isPro) return openPaywall("Voice guidance is part of DeCam GPS Pro.");
+            toggleMuted(!muted);
+          }}
           onEnd={endNav}
           onLayoutHeight={setNavFooterH}
         />
@@ -1212,7 +1305,7 @@ function MapScreen() {
           theme={theme}
           routes={routes ?? []}
           counts={routeCounts}
-          speedCounts={speedCounts}
+          speedCounts={isPro ? speedCounts : null}
           countError={countError}
           selected={selectedRoute}
           onSelect={(i) => setSelectedRoute(i)}
@@ -1299,6 +1392,19 @@ const styles = StyleSheet.create({
   top: { position: "absolute", left: 16, right: 16, gap: 10 },
   toast: { borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12 },
   controls: { position: "absolute", right: 16, borderRadius: 16 },
+  policeHint: {
+    position: "absolute",
+    left: 16,
+    height: 44,
+    paddingLeft: 6,
+    paddingRight: 10,
+    borderRadius: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  policeDot: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  proMini: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   gear: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   attribution: { position: "absolute", right: 12 },

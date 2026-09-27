@@ -1,5 +1,7 @@
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useState } from "react";
+import { isPreviewingFree, PRO_PRICE, setPreviewFree, trialLeftText, type ProStatus } from "../lib/pro";
 import { setAppearance, useAppearance, type Appearance, type Theme } from "../theme";
 import { CloseIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -21,6 +23,9 @@ export function SettingsSheet({
   onClose,
   historyCount,
   onClearHistory,
+  pro,
+  onOpenPro,
+  isAdmin = false,
 }: {
   visible: boolean;
   theme: T;
@@ -30,9 +35,13 @@ export function SettingsSheet({
   /** How many recent destinations are saved on this phone. */
   historyCount: number;
   onClearHistory: () => void;
+  pro: ProStatus;
+  onOpenPro: () => void;
+  isAdmin?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const appearance = useAppearance();
+  const [preview, setPreview] = useState(isPreviewingFree());
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: theme.mapFallback }}>
@@ -51,6 +60,60 @@ export function SettingsSheet({
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 22, paddingBottom: insets.bottom + 24 }}>
+          <View style={{ gap: 8 }}>
+            <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
+              YOUR PLAN
+            </Txt>
+            <Pressable
+              onPress={onOpenPro}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.card, styles.row, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="bold" style={{ fontSize: 17, color: theme.text }}>
+                  {pro.kind === "trial"
+                    ? "Pro free trial"
+                    : pro.kind === "pro" || pro.kind === "admin"
+                      ? "DeCam GPS Pro"
+                      : "Free"}
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  {pro.kind === "trial"
+                    ? `${trialLeftText(pro.trialMsLeft)} · then ${PRO_PRICE}`
+                    : pro.kind === "admin"
+                      ? "Included with your admin account"
+                      : pro.kind === "pro"
+                        ? "Thanks for supporting DeCam GPS"
+                        : "Police alerts, speed cameras and voice with Pro"}
+                </Txt>
+              </View>
+              <Txt weight="bold" style={{ fontSize: 15, color: theme.accentIcon }}>
+                {pro.isPro ? "Details" : pro.kind === "free" ? "Try free" : "Upgrade"}
+              </Txt>
+            </Pressable>
+            {isAdmin ? (
+              <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                    Preview the free version
+                  </Txt>
+                  <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                    Admin only: see the app the way free users do. Resets when the app restarts.
+                  </Txt>
+                </View>
+                <Switch
+                  value={preview}
+                  onValueChange={(v) => {
+                    setPreview(v);
+                    setPreviewFree(v);
+                  }}
+                  trackColor={{ true: theme.accent }}
+                  accessibilityLabel="Preview the free version"
+                />
+              </View>
+            ) : null}
+          </View>
+
           <View style={{ gap: 8 }}>
             <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
               APPEARANCE
@@ -90,7 +153,7 @@ export function SettingsSheet({
             <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
-                  Voice guidance
+                  Voice guidance{pro.isPro ? "" : " · Pro"}
                 </Txt>
                 <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
                   Spoken turns and camera / police warnings while navigating.

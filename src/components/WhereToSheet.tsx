@@ -1,4 +1,5 @@
-import { ActionSheetIOS, Pressable, StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { ActionSheetIOS, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatDuration } from "../lib/directions";
 import type { SavedPlace, SavedPlaces } from "../lib/savedPlaces";
@@ -33,6 +34,9 @@ export function WhereToSheet({
   onLayoutHeight: (h: number) => void;
 }) {
   const insets = useSafeAreaInsets();
+  // Show the 2 latest; "Show all" opens the full list (up to 10) in a scrolling area.
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? places.recents : places.recents.slice(0, 2);
 
   const slotMenu = (slot: Slot) => {
     const label = slot === "home" ? "Home" : "Work";
@@ -104,7 +108,8 @@ export function WhereToSheet({
         ) : null}
       </View>
       <View style={styles.tiles}>{(["home", "work"] as const).map(tile)}</View>
-      {places.recents.map((r) => (
+      <ScrollView style={{ maxHeight: showAll ? 300 : undefined }} contentContainerStyle={{ gap: 14 }} scrollEnabled={showAll}>
+      {shown.map((r) => (
         <Pressable
           key={r.id}
           onPress={() => onGo(r)}
@@ -147,6 +152,19 @@ export function WhereToSheet({
           </Pressable>
         </Pressable>
       ))}
+      </ScrollView>
+      {places.recents.length > 2 ? (
+        <Pressable
+          onPress={() => setShowAll((v) => !v)}
+          accessibilityRole="button"
+          hitSlop={6}
+          style={({ pressed }) => ({ alignSelf: "flex-start", opacity: pressed ? 0.6 : 1 })}
+        >
+          <Txt weight="semibold" style={{ fontSize: 14, color: theme.accentIcon }}>
+            {showAll ? "Show less" : `Show all ${places.recents.length} recent places`}
+          </Txt>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

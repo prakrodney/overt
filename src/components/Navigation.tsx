@@ -129,6 +129,7 @@ export function NavPanel({
   update,
   route,
   muted,
+  locked = false,
   onToggleMute,
   onEnd,
   onLayoutHeight,
@@ -137,6 +138,8 @@ export function NavPanel({
   update: NavUpdate | null;
   route: RouteOption | null;
   muted: boolean;
+  /** Voice is a Pro feature: show a "PRO" tag and open the upgrade screen on tap. */
+  locked?: boolean;
   onToggleMute: () => void;
   onEnd: () => void;
   /** Height of the collapsed bar, so buttons can sit above it. */
@@ -219,10 +222,17 @@ export function NavPanel({
           <Pressable
             onPress={onToggleMute}
             accessibilityRole="button"
-            accessibilityLabel={muted ? "Unmute voice" : "Mute voice"}
+            accessibilityLabel={locked ? "Voice guidance (Pro)" : muted ? "Unmute voice" : "Mute voice"}
             style={[styles.round, { backgroundColor: theme.subtle }]}
           >
-            <SpeakerIcon muted={muted} color={theme.text} />
+            <SpeakerIcon muted={muted} color={locked ? theme.textSecondary : theme.text} />
+            {locked ? (
+              <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
+                <Txt weight="bold" style={{ fontSize: 9, color: theme.onAccent, letterSpacing: 0.3 }}>
+                  PRO
+                </Txt>
+              </View>
+            ) : null}
           </Pressable>
           <Pressable
             onPress={() => snap(!open)}
@@ -304,6 +314,7 @@ const styles = StyleSheet.create({
   },
   handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center", marginTop: 8, marginBottom: 8 },
   barRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18 },
+  proTag: { position: "absolute", top: -4, right: -6, paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6 },
   round: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   end: { height: 48, paddingHorizontal: 22, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   recenter: {
