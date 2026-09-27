@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Theme } from "../theme";
-import { CameraGlyph } from "./Icons";
+import { CameraGlyph, SpeedGlyph } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -30,11 +30,12 @@ export function ReportSheet({
   theme: T;
   busy: boolean;
   error: string | null;
-  onSubmit: (directionDeg: number | null) => void;
+  onSubmit: (directionDeg: number | null, category: "alpr" | "speed_camera") => void;
   onCancel: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [dir, setDir] = useState<number | null>(null);
+  const [kind, setKind] = useState<"alpr" | "speed_camera">("alpr");
 
   return (
     <View
@@ -62,13 +63,41 @@ export function ReportSheet({
         <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
           TYPE
         </Txt>
-        <View style={[styles.chip, styles.typeChip, { backgroundColor: theme.badgeBg, borderColor: theme.accentIcon }]}>
-          <View style={[styles.glyph, { backgroundColor: theme.markerFill }]}>
-            <CameraGlyph size={10} color={theme.markerGlyph} />
-          </View>
-          <Txt weight="semibold" style={{ color: theme.badgeText, fontSize: 15 }}>
-            License plate reader (ALPR)
-          </Txt>
+        <View style={styles.wrap}>
+          {(
+            [
+              { k: "alpr", label: "Plate reader (ALPR)" },
+              { k: "speed_camera", label: "Speed camera" },
+            ] as const
+          ).map(({ k, label }) => {
+            const on = kind === k;
+            return (
+              <Pressable
+                key={k}
+                onPress={() => setKind(k)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                style={[
+                  styles.chip,
+                  styles.typeChip,
+                  on
+                    ? { backgroundColor: theme.badgeBg, borderColor: theme.accentIcon }
+                    : { backgroundColor: theme.surface, borderColor: theme.outline },
+                ]}
+              >
+                <View style={[styles.glyph, { backgroundColor: k === "alpr" ? theme.markerFill : theme.speedFill }]}>
+                  {k === "alpr" ? (
+                    <CameraGlyph size={10} color={theme.markerGlyph} />
+                  ) : (
+                    <SpeedGlyph size={12} color={theme.speedGlyph} />
+                  )}
+                </View>
+                <Txt weight="semibold" style={{ color: on ? theme.badgeText : theme.text, fontSize: 15 }}>
+                  {label}
+                </Txt>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
@@ -117,7 +146,7 @@ export function ReportSheet({
           </Txt>
         </Pressable>
         <Pressable
-          onPress={() => onSubmit(dir)}
+          onPress={() => onSubmit(dir, kind)}
           disabled={busy}
           accessibilityRole="button"
           style={({ pressed }) => [styles.button, { backgroundColor: theme.accent, opacity: pressed || busy ? 0.85 : 1 }]}

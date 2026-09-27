@@ -45,7 +45,7 @@ export async function findFewerCamerasRoute(
   baseRoutes: RouteOption[],
   baseCams: Cam[][],
   opts: { avoidTolls?: boolean; signal?: AbortSignal } = {}
-): Promise<{ route: RouteOption; cameras: number } | null> {
+): Promise<{ route: RouteOption; cameras: number; speedCameras: number } | null> {
   const baseMin = Math.min(...baseCams.map((c) => c.length));
   if (baseMin === 0) return null; // a normal route already passes none
 
@@ -67,7 +67,7 @@ export async function findFewerCamerasRoute(
   // Fastest route's cameras first, then the other routes'.
   baseRoutes.forEach((r, i) => addFrom(r, baseCams[i]));
 
-  let best: { route: RouteOption; cameras: number } | null = null;
+  let best: { route: RouteOption; cameras: number; speedCameras: number } | null = null;
   for (let i = 0; i < MAX_TRIES; i++) {
     let rs: RouteOption[];
     try {
@@ -82,7 +82,9 @@ export async function findFewerCamerasRoute(
       break; // e.g. no route possible without passing a camera near the destination
     }
     if (!rs.length) break;
-    const cams = await camerasAlongRoutesDetailed(rs, opts.signal);
+    // Detours avoid license plate readers only; speed cameras are just counted.
+    const all = await camerasAlongRoutesDetailed(rs, opts.signal);
+    const cams = all.map((cs) => cs.filter((c) => !c.speed));
     // Pick this try's route with the fewest cameras (ties: quickest).
     let j = 0;
     for (let k = 1; k < rs.length; k++) {
@@ -90,7 +92,7 @@ export async function findFewerCamerasRoute(
     }
     const n = cams[j].length;
     if (!best || n < best.cameras || (n === best.cameras && rs[j].durationSec < best.route.durationSec)) {
-      best = { route: { ...rs[j], id: "fewest" }, cameras: n };
+      best = { route: { ...rs[j], id: "fewest" }, cameras: n, speedCameras: all[j].length - n };
     }
     if (n === 0 || avoid.size >= MAX_AVOID) break;
     if (addFrom(rs[j], cams[j]) === 0) break; // nothing new to avoid

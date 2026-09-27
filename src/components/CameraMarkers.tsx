@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { View } from "react-native";
 import { Marker, Polygon } from "react-native-maps";
-import type { CameraCluster, CameraPoint } from "../lib/cameras";
+import { isSpeedCamera, type CameraCluster, type CameraPoint } from "../lib/cameras";
 import { conePolygon, metersPerPoint } from "../lib/geo";
 import type { Theme } from "../theme";
-import { CameraGlyph } from "./Icons";
+import { CameraGlyph, SpeedGlyph } from "./Icons";
 
 type T = Theme & { isDark: boolean };
 
@@ -21,6 +21,10 @@ export const CameraMarker = memo(function CameraMarker({
   onPress: (p: CameraPoint) => void;
 }) {
   const muted = point.confidence_level === "needs_confirmation";
+  const speed = isSpeedCamera(point);
+  const fill = speed ? theme.speedFill : theme.markerFill;
+  const stroke = speed ? theme.speedStroke : theme.markerStroke;
+  const glyph = speed ? theme.speedGlyph : theme.markerGlyph;
   const r = selected ? 16 : 11;
   const halo = selected ? 26 : 0;
   const box = Math.max(r, halo) * 2 + 4;
@@ -35,7 +39,7 @@ export const CameraMarker = memo(function CameraMarker({
       }}
       tracksViewChanges={false}
       zIndex={selected ? 1000 : 10}
-      accessibilityLabel="Automated license plate reader"
+      accessibilityLabel={speed ? "Speed camera" : "Automated license plate reader"}
     >
       <View style={{ width: box, height: box, alignItems: "center", justifyContent: "center" }}>
         {selected && (
@@ -54,9 +58,9 @@ export const CameraMarker = memo(function CameraMarker({
             width: r * 2,
             height: r * 2,
             borderRadius: r,
-            backgroundColor: muted ? theme.markerMutedFill : theme.markerFill,
+            backgroundColor: muted ? theme.markerMutedFill : fill,
             borderWidth: selected ? 3 : muted ? 1.5 : 2,
-            borderColor: muted ? theme.markerMutedStroke : theme.markerStroke,
+            borderColor: muted ? (speed ? theme.speedFill : theme.markerMutedStroke) : stroke,
             borderStyle: muted ? "dashed" : "solid",
             alignItems: "center",
             justifyContent: "center",
@@ -66,7 +70,11 @@ export const CameraMarker = memo(function CameraMarker({
             shadowOffset: { width: 0, height: 1 },
           }}
         >
-          <CameraGlyph size={selected ? 15 : 11} color={muted ? theme.markerMutedStroke : theme.markerGlyph} />
+          {speed ? (
+            <SpeedGlyph size={selected ? 18 : 13} color={muted ? theme.speedFill : glyph} />
+          ) : (
+            <CameraGlyph size={selected ? 15 : 11} color={muted ? theme.markerMutedStroke : glyph} />
+          )}
         </View>
       </View>
     </Marker>
@@ -97,7 +105,7 @@ export const ClusterMarker = memo(function ClusterMarker({
       }}
       tracksViewChanges={false}
       zIndex={5}
-      accessibilityLabel={`${n} license plate readers. Tap to zoom in.`}
+      accessibilityLabel={`${n} ${isSpeedCamera(cluster) ? "speed cameras" : "license plate readers"}. Tap to zoom in.`}
     >
       {/* Invisible padding keeps the tap target comfortable. */}
       <View style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
@@ -106,7 +114,7 @@ export const ClusterMarker = memo(function ClusterMarker({
             width: d,
             height: d,
             borderRadius: d / 2,
-            backgroundColor: theme.clusterFill,
+            backgroundColor: isSpeedCamera(cluster) ? theme.speedClusterFill : theme.clusterFill,
             borderWidth: 1.5,
             borderColor: theme.clusterStroke,
           }}
@@ -136,13 +144,14 @@ export function DirectionCones({
       {points.flatMap((p) =>
         p.directions.map((deg, i) => {
           const selected = p.id === selectedId;
+          const speed = isSpeedCamera(p);
           const radius = (selected ? 76 : 36) * metersPerPoint(zoom, p.lat);
           return (
             <Polygon
               key={`${p.id}-${i}-${selected ? "s" : "n"}-${Math.round(radius)}-${theme.isDark ? "d" : "l"}`}
               coordinates={conePolygon(p.lat, p.lon, deg, radius)}
-              fillColor={theme.cone}
-              strokeColor={selected ? theme.coneStroke : "transparent"}
+              fillColor={speed ? theme.speedCone : theme.cone}
+              strokeColor={selected ? (speed ? theme.speedConeStroke : theme.coneStroke) : "transparent"}
               strokeWidth={selected ? 1.5 : 0}
               zIndex={1}
               tappable={false}

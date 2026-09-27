@@ -51,6 +51,13 @@ async function loadSession(): Promise<Session> {
   return authCall("signup", {});
 }
 
+/** True if this phone already has an account (so checking admin status won't create one). */
+export async function hasSession(): Promise<boolean> {
+  if (cached) return true;
+  const raw = await SecureStore.getItemAsync(KEY).catch(() => null);
+  return !!raw;
+}
+
 /** A valid access token for this device's anonymous account. */
 export async function getAccessToken(): Promise<string> {
   inflight ??= loadSession().finally(() => {

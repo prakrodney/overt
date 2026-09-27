@@ -9,18 +9,22 @@ import {
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { ActionSheetIOS, AppState, Keyboard, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraMarker, ClusterMarker, DirectionCones } from "./src/components/CameraMarkers";
 import { CameraSheet } from "./src/components/CameraSheet";
 import { CloseIcon, LocateIcon, PlusIcon } from "./src/components/Icons";
 import { LocationIntro } from "./src/components/LocationIntro";
+import { ReviewScreen } from "./src/components/ReviewScreen";
 import { PlacementPin, ReportSheet } from "./src/components/ReportSheet";
 import { PlaceSheet } from "./src/components/PlaceSheet";
 import { RouteHeader, RouteSheet } from "./src/components/RouteSheet";
 import { SearchBar } from "./src/components/SearchBar";
 import { WhereToSheet } from "./src/components/WhereToSheet";
+import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
+import { ALERT_LABEL, fetchRoadAlerts, reportRoadAlert, type RoadAlert, type RoadAlertType } from "./src/lib/roadAlerts";
+import { Speedometer, useSpeed } from "./src/components/Speedometer";
 import { Txt } from "./src/components/Txt";
 import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoint } from "./src/lib/cameras";
 import type { Place } from "./src/lib/geocode";
@@ -28,6 +32,7 @@ import { fetchRoutes, type RouteOption } from "./src/lib/directions";
 import { camerasAlongRoutesDetailed } from "./src/lib/routeCameras";
 import { findFewerCamerasRoute } from "./src/lib/fewerCameras";
 import { reportNewPoint } from "./src/lib/reports";
+import { adminStatus, claimAdmin } from "./src/lib/admin";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
 import {
   addRecent,
@@ -72,6 +77,9 @@ function MapScreen() {
   const [region, setRegion] = useState<Region>(US_REGION);
   const [layer, setLayer] = useState<CameraLayer>(EMPTY);
   const [selected, setSelected] = useState<CameraPoint | null>(null);
+  // Live road alerts (police / crash / object on road), each lasting an hour.
+  const [alerts, setAlerts] = useState<RoadAlert[]>([]);
+  const [selectedAlert, setSelectedAlert] = useState<RoadAlert | null>(null);
   const [searchPin, setSearchPin] = useState<Place | null>(null);
   const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -81,6 +89,7 @@ function MapScreen() {
   // Route preview state
   const [routes, setRoutes] = useState<RouteOption[] | null>(null);
   const [routeCounts, setRouteCounts] = useState<number[] | null>(null);
+  const [speedCounts, setSpeedCounts] = useState<number[] | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
   const [selectedRoute, setSelectedRoute] = useState(0);
   const [avoidTolls, setAvoidTolls] = useState(false);
@@ -175,6 +184,17 @@ function MapScreen() {
     introSeen().then((seen) => (seen ? boot() : setShowIntro(true)));
   }, [boot]);
 
+  // ---- Speed (GPS) — also keeps "your location" fresh for directions -----------
+  const lastLocRef = useRef<{ lat: number; lon: number } | null>(null);
+  const mph = useSpeed(startRegion != null && !locationDenied, (lat, lon) => {
+    const prev = lastLocRef.current;
+    // Update the stored location after ~150 m of movement (avoids re-rendering every second).
+    if (!prev || Math.abs(prev.lat - lat) > 0.0014 || Math.abs(prev.lon - lon) > 0.0017) {
+      lastLocRef.current = { lat, lon };
+      setUserLoc({ lat, lon });
+    }
+  });
+
   // Home / Work / recents (stored on this phone only).
   const [places, setPlaces] = useState<SavedPlaces>(EMPTY_PLACES);
   const [settingSlot, setSettingSlot] = useState<"home" | "work" | null>(null);
@@ -185,6 +205,18 @@ function MapScreen() {
   useEffect(() => {
     loadSavedPlaces().then(setPlaces);
   }, []);
+
+  // Admin review (only shown on phones that redeemed an admin code).
+  const [admin, setAdmin] = useState<{ isAdmin: boolean; pending: number }>({ isAdmin: false, pending: 0 });
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const refreshAdmin = useCallback(() => {
+    adminStatus().then((s) => setAdmin({ isAdmin: s.is_admin, pending: s.pending ?? 0 }));
+  }, []);
+  useEffect(() => {
+    refreshAdmin();
+    const sub = AppState.addEventListener("change", (st) => st === "active" && refreshAdmin());
+    return () => sub.remove();
+  }, [refreshAdmin]);
 
   // ---- Load cameras for the visible area -------------------------------------
   const load = useCallback(
@@ -200,9 +232,27 @@ function MapScreen() {
         .catch((e) => {
           if (e?.name !== "AbortError") setLoadError("Couldn't load cameras. Check your connection.");
         });
+      // Alerts only when zoomed in to roughly a metro area or closer.
+      if (zoomForRegion(r, width) >= 9) {
+        fetchRoadAlerts(boundsForRegion(r), ctrl.signal)
+          .then(setAlerts)
+          .catch(() => {});
+      } else setAlerts([]);
     },
     [width]
   );
+
+  // Alerts come and go within the hour: refresh them every minute.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const r = regionRef.current;
+      if (startRegion && zoomForRegion(r, width) >= 9) {
+        fetchRoadAlerts(boundsForRegion(r)).then(setAlerts).catch(() => {});
+      }
+    }, 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startRegion, width]);
 
   // First load, once the map knows where it starts.
   useEffect(() => {
@@ -245,6 +295,7 @@ function MapScreen() {
 
   const selectPoint = useCallback((p: CameraPoint) => {
     Keyboard.dismiss();
+    setSelectedAlert(null);
     setSelected(p);
     // Keep the zoom, but slide the camera into the upper part of the screen,
     // clear of the bottom sheet.
@@ -302,6 +353,7 @@ function MapScreen() {
       setRouteLoading(true);
       setRouteError(null);
       setRouteCounts(null);
+      setSpeedCounts(null);
       setCountError(null);
       try {
         let from = userLoc;
@@ -328,10 +380,14 @@ function MapScreen() {
         const fromLL = { latitude: from.lat, longitude: from.lon };
         const toLL = { latitude: place.lat, longitude: place.lon };
         camerasAlongRoutesDetailed(rs, ctrl.signal)
-          .then(async (cams) => {
+          .then(async (all) => {
             if (ctrl.signal.aborted) return;
+            // Ratings and detours are about license plate readers; speed cameras are listed separately.
+            const cams = all.map((x) => x.filter((c) => !c.speed));
+            const speeds = all.map((x) => x.length - x.filter((c) => !c.speed).length);
             const counts = cams.map((x) => x.length);
             setRouteCounts(counts);
+            setSpeedCounts(speeds);
             if (Math.min(...counts) === 0) return;
             setSearchingFewer(true);
             const fewer = await findFewerCamerasRoute(fromLL, toLL, rs, cams, {
@@ -341,6 +397,7 @@ function MapScreen() {
             if (fewer && !ctrl.signal.aborted) {
               setRoutes([...rs, fewer.route]);
               setRouteCounts([...counts, fewer.cameras]);
+              setSpeedCounts([...speeds, fewer.speedCameras]);
             }
           })
           .catch((e) => e?.name !== "AbortError" && setCountError("Couldn't count cameras on these routes."));
@@ -398,6 +455,25 @@ function MapScreen() {
   );
 
   // ---- Report new equipment ----------------------------------------------------
+  // Report button: live alerts go in with one tap at your spot; cameras use the pin flow.
+  const sendAlert = useCallback(
+    async (type: RoadAlertType) => {
+      showToast(`Reporting ${ALERT_LABEL[type].toLowerCase()}…`);
+      try {
+        const a = await reportRoadAlert(type);
+        showToast(
+          a.merged
+            ? `Thanks! ${ALERT_LABEL[type]} was already reported here, so we kept it up for another hour.`
+            : `Thanks! ${ALERT_LABEL[type]} will show here for the next hour.`
+        );
+        setAlerts((xs) => [a, ...xs.filter((x) => x.id !== a.id)]);
+      } catch (e: any) {
+        showToast(e?.message ?? "Couldn't send that. Try again.");
+      }
+    },
+    [showToast]
+  );
+
   const startReport = useCallback(
     (at?: { latitude: number; longitude: number }) => {
       Keyboard.dismiss();
@@ -413,13 +489,13 @@ function MapScreen() {
   );
 
   const submitReport = useCallback(
-    async (directionDeg: number | null) => {
+    async (directionDeg: number | null, category: "alpr" | "speed_camera") => {
       setReportBusy(true);
       setReportError(null);
       try {
         const cam = await mapRef.current?.getCamera();
         if (!cam) throw new Error("Map isn't ready yet. Try again.");
-        const r = await reportNewPoint(cam.center.latitude, cam.center.longitude, directionDeg);
+        const r = await reportNewPoint(cam.center.latitude, cam.center.longitude, directionDeg, category);
         setReporting(false);
         if (r.merged_into) {
           showToast(r.note ? `That camera is already on the map. ${r.note}` : "That camera is already on the map, so we counted it as a confirmation. Thanks!");
@@ -437,7 +513,14 @@ function MapScreen() {
   );
   const showCones = zoom >= 13;
   const showHome =
-    startRegion != null && !reporting && !inRouteMode && !selected && !searchPin && !searchFocused && !settingSlot;
+    startRegion != null &&
+    !reporting &&
+    !inRouteMode &&
+    !selected &&
+    !selectedAlert &&
+    !searchPin &&
+    !searchFocused &&
+    !settingSlot;
   const homeH = showHome && sheetH ? sheetH : 0;
   const shadow = {
     shadowColor: theme.shadowColor,
@@ -475,7 +558,10 @@ function MapScreen() {
         onRegionChangeComplete={onRegionChangeComplete}
         onPress={() => {
           Keyboard.dismiss();
-          if (!reporting) setSelected(null);
+          if (!reporting) {
+            setSelected(null);
+            setSelectedAlert(null);
+          }
         }}
         onLongPress={(e) => {
           if (!inRouteMode && !reporting) startReport(e.nativeEvent.coordinate);
@@ -496,6 +582,19 @@ function MapScreen() {
         ) : null}
         {layer.clusters.map((c) => (
           <ClusterMarker key={`${c.id}-${c.count}`} cluster={c} theme={theme} onPress={zoomIntoCluster} />
+        ))}
+        {alerts.map((a) => (
+          <RoadAlertMarker
+            key={`ra-${a.id}`}
+            alert={a}
+            selected={a.id === selectedAlert?.id}
+            theme={theme}
+            onPress={(x) => {
+              Keyboard.dismiss();
+              setSelected(null);
+              setSelectedAlert(x);
+            }}
+          />
         ))}
         {layer.points.map((p) => (
           <CameraMarker
@@ -580,6 +679,8 @@ function MapScreen() {
       </MapView>
       ) : null}
 
+      {!reporting ? <Speedometer theme={theme} mph={mph} top={insets.top + (inRouteMode ? 112 : 74)} /> : null}
+
       {/* Recenter */}
       <View
         style={[styles.controls, { top: insets.top + (inRouteMode ? 112 : 74), backgroundColor: theme.control }, shadow]}
@@ -619,6 +720,14 @@ function MapScreen() {
             focusSignal={searchFocus}
             clearOnPick={settingSlot != null}
             onFocusChange={setSearchFocused}
+            onAdminCode={(code) => {
+              claimAdmin(code)
+                .then(() => {
+                  showToast("You're an admin on this phone. Use the Review button to check reports.");
+                  refreshAdmin();
+                })
+                .catch((e) => showToast(e?.message ?? "Couldn't use that code."));
+            }}
           />
         )}
         {settingSlot && !reporting && !inRouteMode ? (
@@ -673,9 +782,25 @@ function MapScreen() {
       {reporting ? <PlacementPin theme={theme} /> : null}
 
       {/* Report button (Home board: white pill, bottom right) */}
-      {!reporting && !inRouteMode && !selected && !searchPin ? (
+      {!reporting && !inRouteMode && !selected && !selectedAlert && !searchPin ? (
         <Pressable
-          onPress={() => startReport()}
+          onPress={() =>
+            ActionSheetIOS.showActionSheetWithOptions(
+              {
+                title: "What do you see?",
+                message: "Police, crashes and objects are reported where you are now and last an hour.",
+                options: ["Police", "Crash", "Object on road", "Camera (plate reader or speed)", "Cancel"],
+                cancelButtonIndex: 4,
+                userInterfaceStyle: theme.isDark ? "dark" : "light",
+              },
+              (i) => {
+                if (i === 0) sendAlert("police");
+                else if (i === 1) sendAlert("crash");
+                else if (i === 2) sendAlert("hazard");
+                else if (i === 3) startReport();
+              }
+            )
+          }
           accessibilityRole="button"
           accessibilityLabel="Report equipment"
           accessibilityHint="You can also long-press the map"
@@ -691,6 +816,45 @@ function MapScreen() {
           </Txt>
         </Pressable>
       ) : null}
+
+      {admin.isAdmin && !reporting && !inRouteMode && !selected && !selectedAlert && !searchPin ? (
+        <Pressable
+          onPress={() => setReviewOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Review reports, ${admin.pending} waiting`}
+          style={({ pressed }) => [
+            styles.reportButton,
+            { bottom: (homeH ? homeH + 24 : insets.bottom + 28) + 58, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1 },
+            shadow,
+          ]}
+        >
+          <Txt weight="semibold" style={{ color: theme.text, fontSize: 15 }}>
+            Review
+          </Txt>
+          {admin.pending > 0 ? (
+            <View style={[styles.countBadge, { backgroundColor: theme.accent }]}>
+              <Txt weight="bold" style={{ color: theme.onAccent, fontSize: 12 }}>
+                {admin.pending > 99 ? "99+" : admin.pending}
+              </Txt>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
+
+      <ReviewScreen
+        visible={reviewOpen}
+        theme={theme}
+        onClose={() => setReviewOpen(false)}
+        onChanged={(pending) => {
+          setAdmin((a) => ({ ...a, pending }));
+          load(regionRef.current);
+        }}
+        onShowOnMap={(lat, lon) => {
+          setReviewOpen(false);
+          setSelected(null);
+          mapRef.current?.animateToRegion({ latitude: lat, longitude: lon, latitudeDelta: 0.004, longitudeDelta: 0.004 }, 500);
+        }}
+      />
 
       {reporting ? (
         <ReportSheet
@@ -708,6 +872,7 @@ function MapScreen() {
           theme={theme}
           routes={routes ?? []}
           counts={routeCounts}
+          speedCounts={speedCounts}
           countError={countError}
           selected={selectedRoute}
           onSelect={(i) => setSelectedRoute(i)}
@@ -752,6 +917,20 @@ function MapScreen() {
         />
       ) : null}
 
+      {selectedAlert && !reporting && !selected ? (
+        <RoadAlertSheet
+          key={selectedAlert.id}
+          alert={selectedAlert}
+          theme={theme}
+          onClose={() => setSelectedAlert(null)}
+          onMessage={showToast}
+          onChanged={() => {
+            const r = regionRef.current;
+            fetchRoadAlerts(boundsForRegion(r)).then(setAlerts).catch(() => {});
+          }}
+        />
+      ) : null}
+
       {/* Camera details sit above everything else, including route previews. */}
       <CameraSheet
         point={reporting ? null : selected}
@@ -770,6 +949,7 @@ const styles = StyleSheet.create({
   controls: { position: "absolute", right: 16, borderRadius: 16 },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   attribution: { position: "absolute", right: 12 },
+  countBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
   settingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   settingClose: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   reportButton: {

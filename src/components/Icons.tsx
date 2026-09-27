@@ -142,3 +142,50 @@ export function ClockIcon({ size = 18, color, strokeWidth = 2 }: P) {
     </Svg>
   );
 }
+
+/** Speedometer glyph for speed cameras (same small grid as CameraGlyph). */
+export function SpeedGlyph({ size = 12, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.6} strokeLinecap="round">
+      <Path d="M4.5 17a8.5 8.5 0 1 1 15 0" />
+      <Path d="M12 14l4-4.5" />
+      <Circle cx={12} cy={14} r={1.2} fill={color} stroke="none" />
+    </Svg>
+  );
+}
+
+/** Police badge (shield with star). */
+export function PoliceIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M12 2.5l7.5 3v6c0 4.6-3.2 8.3-7.5 10-4.3-1.7-7.5-5.4-7.5-10v-6z" fill={color} />
+      <Path
+        d="M12 7.6l1.25 2.55 2.8.4-2.03 1.98.48 2.8L12 14l-2.5 1.33.48-2.8-2.03-1.98 2.8-.4z"
+        fill="rgba(0,0,0,0.35)"
+      />
+    </Svg>
+  );
+}
+
+/** Crash (car with an impact burst). */
+export function CrashIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round">
+      <Path d="M3 16v-3l2-4.5h8l2.5 4.5V16z" />
+      <Circle cx={6.5} cy={16.5} r={1.6} fill={color} />
+      <Circle cx={12.5} cy={16.5} r={1.6} fill={color} />
+      <Path d="M18 4l.6 2.4L21 6l-1.4 2 1.9 1.4-2.5.2" />
+    </Svg>
+  );
+}
+
+/** Object on the road (warning triangle with !). */
+export function HazardIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round">
+      <Path d="M12 3.5l9.5 16.5h-19z" />
+      <Path d="M12 10v4.5" />
+      <Circle cx={12} cy={17.2} r={0.6} fill={color} />
+    </Svg>
+  );
+}

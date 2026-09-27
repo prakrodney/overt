@@ -24,7 +24,12 @@ export async function voteOnPoint(pointId: number, verdict: "confirm" | "gone") 
   });
 }
 
-export async function reportNewPoint(lat: number, lon: number, directionDeg: number | null) {
+export async function reportNewPoint(
+  lat: number,
+  lon: number,
+  directionDeg: number | null,
+  category: "alpr" | "speed_camera" = "alpr"
+) {
   const me = await here();
   return rpcAuthed<{ point_id?: number; merged_into?: number; note?: string }>("report_new_point", {
     p_lat: lat,
@@ -32,6 +37,7 @@ export async function reportNewPoint(lat: number, lon: number, directionDeg: num
     p_direction_deg: directionDeg,
     p_user_lat: me.lat,
     p_user_lon: me.lon,
+    p_category: category,
   });
 }
 

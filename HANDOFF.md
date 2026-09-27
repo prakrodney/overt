@@ -1,6 +1,9 @@
 # Overt: project handoff
 
 > **App name:** the app is now called **DeCam GPS** on phones (app.json name, logo in assets/icon.png from the owner's image). Code, repo, Supabase and file names stay "Overt".
+> **Speed cameras (migration 0014):** importer also fetches `node[highway=speed_camera]` (category `speed_camera`); layer clusters per category; `get_cameras_in_boxes` rows gain a 5th element (1 = speed camera); route ratings and detours count plate readers only, speed cameras shown separately; `report_new_point` gained `p_category`. The 0014 migration was applied as in-place text replacements of the live importer functions (the file has the full resulting definitions).
+> **Road alerts (migration 0015):** `public.road_alerts` (police/crash/hazard, 1 h expiry), RPCs `get_road_alerts` (anon), `report_road_alert`, `vote_road_alert`; cron `road-alerts-cleanup` deletes rows a day after expiry. Limits (0016): 3 alerts/hour and 10/day per account via `private.road_alert_log`; duplicate reports and "Still there" restart the hour (never stack), max 3 h per alert; 20 votes/hour.
+> **Admin review (migration 0013):** in-app Review screen for admins; the owner's phone becomes admin by typing a one-time code (hash in `private.admin_codes`, admins in `private.admins`) into the search bar. If his anonymous account is ever lost, generate a new code.
 
 _Last updated: 2026-09-26, ~09:25 UTC. Written for the next Claude session. Read this first,
 then `README.md`._

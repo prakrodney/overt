@@ -19,6 +19,9 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Colors and type (Figtree) from the Overt screen designs | `src/theme.ts` |
 | Report + confirm: **Report** button or long-press the map to add a camera; **Still there** / **Report an issue** on each camera (anonymous account, within 300 m) | `src/components/ReportSheet.tsx`, `src/components/CameraSheet.tsx`, `src/lib/reports.ts`, `src/lib/auth.ts` |
 | Home sheet: **Where to?** with Home / Work (tap to set, long-press to change) and 2 recent places, all stored only on the phone; first-launch location explainer; app icon (`assets/icon.png`) | `src/components/WhereToSheet.tsx`, `src/components/LocationIntro.tsx`, `src/lib/savedPlaces.ts` |
+| Speed cameras (OSM `highway=speed_camera`): amber markers and dots, own sheet title and speed limit, counted separately on routes, reportable | `category = 'speed_camera'`, migration 0014 |
+| Speedometer: GPS speed in mph (top-left) while driving; hides after a minute stopped | `src/components/Speedometer.tsx` |
+| Live road alerts: **Report** → Police / Crash / Object on road, placed at your spot; last 1 hour (a duplicate report or "Still there" restarts the hour, never adds; 3 h max), removed by 2 "Not there" (or the reporter); 3 alerts/hour, 10/day per person; deleted a day after expiry | `src/components/RoadAlerts.tsx`, `src/lib/roadAlerts.ts`, migration 0015 |
 | Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone
@@ -87,9 +90,13 @@ anonymous sign-ins** must be on). People can confirm a camera (**Still there**),
 gone, flag wrong location/details, or report new equipment. The server checks you're within
 300 m (your location is used for that check only; the report stores the camera's location),
 allows one vote per camera per day, and allows **one new camera per person per day**. Confidence and reporter
-trust are recomputed on every vote (`private.recompute_confidence`). Review flagged reports
-in the SQL editor: `select * from private.moderation_queue;` then
-`select private.moderate_report(<id>, 'accepted' | 'rejected');`.
+trust are recomputed on every vote (`private.recompute_confidence`). Flagged reports (new cameras from low-trust reporters, and "Report an issue" flags) are
+reviewed **in the app**: an admin phone shows a **Review** button with the waiting count
+(`src/components/ReviewScreen.tsx`, `public.admin_*` in migration 0013). A phone becomes an
+admin by typing a one-time code into the search bar and pressing Search. Make a new code in
+the SQL editor with
+`insert into private.admin_codes (code_hash) values (encode(extensions.digest('decam-admin-<random>', 'sha256'), 'hex'));`.
+Cameras removed there stay removed even if OpenStreetMap still lists them.
 
 ## Project layout
 

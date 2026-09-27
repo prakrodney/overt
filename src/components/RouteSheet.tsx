@@ -44,8 +44,8 @@ function Badge({ rating, theme }: { rating: Rating; theme: T }) {
 
 function cameraText(n: number | undefined) {
   if (n === undefined) return "Counting cameras…";
-  if (n === 0) return "No cameras";
-  return n === 1 ? "1 camera" : `${n} cameras`;
+  if (n === 0) return "No plate readers";
+  return n === 1 ? "1 plate reader" : `${n} plate readers`;
 }
 
 /** Route preview sheet (Route board): route cards with ETA, distance, tolls and camera count. */
@@ -53,6 +53,7 @@ export function RouteSheet({
   theme,
   routes,
   counts,
+  speedCounts = null,
   countError,
   selected,
   onSelect,
@@ -65,6 +66,8 @@ export function RouteSheet({
   theme: T;
   routes: RouteOption[];
   counts: number[] | null;
+  /** Speed cameras on each route (shown, but not part of the rating). */
+  speedCounts?: number[] | null;
   countError: string | null;
   selected: number;
   onSelect: (i: number) => void;
@@ -118,7 +121,7 @@ export function RouteSheet({
       {searchingFewer ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ActivityIndicator size="small" color={theme.textSecondary} />
-          <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>Looking for a route with fewer cameras…</Txt>
+          <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>Looking for a route with fewer plate readers…</Txt>
         </View>
       ) : null}
       {countError ? (
@@ -138,6 +141,7 @@ export function RouteSheet({
               formatMiles(r.distanceM),
               r.hasToll ? "Toll road" : null,
               cameraText(counts?.[i]),
+              speedCounts?.[i] ? (speedCounts[i] === 1 ? "1 speed camera" : `${speedCounts[i]} speed cameras`) : null,
             ]
               .filter(Boolean)
               .join(" · ");
@@ -159,7 +163,7 @@ export function RouteSheet({
                   <Txt weight="bold" style={{ fontSize: 20, color: theme.text }}>
                     {formatDuration(r.durationSec)}
                   </Txt>
-                  <Txt style={{ fontSize: 14, color: theme.textSecondary }} numberOfLines={1}>
+                  <Txt style={{ fontSize: 14, color: theme.textSecondary }} numberOfLines={2}>
                     {meta}
                   </Txt>
                 </View>

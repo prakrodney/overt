@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ADMIN_CODE } from "../lib/admin";
 import { searchPlaces, type Place } from "../lib/geocode";
 import { fonts, type Theme } from "../theme";
 import { CloseIcon, PinIcon, SearchIcon } from "./Icons";
@@ -17,6 +18,7 @@ export function SearchBar({
   focusSignal = 0,
   clearOnPick = false,
   onFocusChange,
+  onAdminCode,
 }: {
   theme: T;
   near?: { lat: number; lon: number };
@@ -28,6 +30,8 @@ export function SearchBar({
   /** Empty the field after a pick instead of showing the place's name. */
   clearOnPick?: boolean;
   onFocusChange?: (focused: boolean) => void;
+  /** Called instead of searching when an admin code is typed and submitted. */
+  onAdminCode?: (code: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
@@ -47,7 +51,8 @@ export function SearchBar({
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 3) {
+    // Admin codes are never sent to the geocoder.
+    if (q.length < 3 || /^decam-admin/i.test(q)) {
       setResults([]);
       setError(null);
       setLoading(false);
@@ -104,7 +109,16 @@ export function SearchBar({
           keyboardAppearance={theme.isDark ? "dark" : "light"}
           selectionColor={theme.accent}
           style={[styles.input, { color: theme.text, fontFamily: fonts.regular }]}
-          onSubmitEditing={() => results[0] && pick(results[0])}
+          onSubmitEditing={() => {
+            const q = query.trim();
+            if (ADMIN_CODE.test(q) && onAdminCode) {
+              setQuery("");
+              Keyboard.dismiss();
+              onAdminCode(q);
+              return;
+            }
+            if (results[0]) pick(results[0]);
+          }}
           accessibilityLabel={placeholder}
         />
         {loading ? <ActivityIndicator color={theme.textSecondary} style={{ marginRight: 8 }} /> : null}

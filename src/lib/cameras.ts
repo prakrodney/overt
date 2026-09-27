@@ -17,10 +17,15 @@ export type CameraPoint = {
   updated_at: string | null;
   last_verified_at: string | null;
   confirm_count?: number;
+  /** Posted limit from OpenStreetMap (speed cameras), e.g. "30 mph" or "35". */
+  maxspeed?: string | null;
 };
+
+export const isSpeedCamera = (p: { category?: string }) => p.category === "speed_camera";
 
 export type CameraCluster = {
   id: string;
+  category?: string;
   count: number;
   lat: number;
   lon: number;

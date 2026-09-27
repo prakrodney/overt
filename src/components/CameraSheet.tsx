@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionSheetIOS, ActivityIndicator, Animated, Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { CameraPoint } from "../lib/cameras";
+import { isSpeedCamera, type CameraPoint } from "../lib/cameras";
 import { describeLocation } from "../lib/geocode";
 import { formatFacing, formatUpdated } from "../lib/geo";
 import { reportIssue, voteOnPoint } from "../lib/reports";
@@ -23,7 +23,14 @@ function sourceLabel(p: CameraPoint) {
   return p.source;
 }
 
+function speedLimit(raw: string | null | undefined) {
+  if (!raw) return null;
+  const t = raw.trim();
+  return /^\d+$/.test(t) ? `${t} mph` : t;
+}
+
 function cameraType(p: CameraPoint) {
+  if (isSpeedCamera(p)) return "Speed camera";
   const maker = p.manufacturer && !/^unknown$/i.test(p.manufacturer) ? p.manufacturer : null;
   return maker ? `${maker} ALPR camera` : "ALPR camera";
 }
@@ -179,10 +186,10 @@ export function CameraSheet({
       <View style={styles.header}>
         <View style={{ flex: 1, gap: 8 }}>
           <Txt weight="semibold" style={[styles.overline, { color: theme.textSecondary }]}>
-            SURVEILLANCE · ALPR
+            {isSpeedCamera(p) ? "ENFORCEMENT · SPEED" : "SURVEILLANCE · ALPR"}
           </Txt>
           <Txt weight="bold" style={[styles.title, { color: theme.text }]}>
-            Automated license plate reader
+            {isSpeedCamera(p) ? "Speed camera" : "Automated license plate reader"}
           </Txt>
           <View style={[styles.badge, { backgroundColor: theme.badgeBg }]}>
             {verified ? <CheckIcon color={theme.badgeText} /> : <InfoIcon color={theme.badgeText} />}
@@ -206,6 +213,7 @@ export function CameraSheet({
         <Row label="Type" value={cameraType(p)} theme={theme} />
         <Row label="Location" value={`${place ?? coords} (approx.)`} theme={theme} />
         <Row label="Facing" value={formatFacing(p.directions)} theme={theme} />
+        {speedLimit(p.maxspeed) ? <Row label="Speed limit" value={speedLimit(p.maxspeed)!} theme={theme} /> : null}
         {p.operator ? <Row label="Operator" value={p.operator} theme={theme} /> : null}
         {p.last_verified_at ? (
           <Row label="Last verified" value={formatUpdated(p.last_verified_at)} theme={theme} />
