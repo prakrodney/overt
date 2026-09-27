@@ -14,7 +14,10 @@ const HIDE_AFTER_MS = 60_000; // stays up through red lights, hides after a minu
  * Current speed from the phone's GPS, in mph. Watches location only while the app
  * is open and location is allowed. Returns null until there's a usable reading.
  */
-export function useSpeed(enabled: boolean, onMove?: (lat: number, lon: number) => void) {
+/** A GPS fix passed to listeners: position, heading (° from north, null if unknown) and speed in mph. */
+export type Fix = { lat: number; lon: number; heading: number | null; mph: number | null };
+
+export function useSpeed(enabled: boolean, onMove?: (fix: Fix) => void) {
   const [mph, setMph] = useState<number | null>(null);
   const moveRef = useRef(onMove);
   moveRef.current = onMove;
@@ -31,8 +34,15 @@ export function useSpeed(enabled: boolean, onMove?: (lat: number, lon: number) =
         { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 0 },
         (pos) => {
           const s = pos.coords.speed; // m/s; negative or null when unknown
-          setMph(s != null && s >= 0 ? s * MPS_TO_MPH : null);
-          moveRef.current?.(pos.coords.latitude, pos.coords.longitude);
+          const v = s != null && s >= 0 ? s * MPS_TO_MPH : null;
+          setMph(v);
+          const h = pos.coords.heading;
+          moveRef.current?.({
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            heading: h != null && h >= 0 ? h : null,
+            mph: v,
+          });
         }
       );
       if (cancelled) {

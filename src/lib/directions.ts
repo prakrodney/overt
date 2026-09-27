@@ -18,7 +18,7 @@ export type RouteOption = {
 let tokenPromise: Promise<string> | null = null;
 
 /** The Mapbox public token: local override, else fetched once from Supabase. */
-function getMapboxToken(): Promise<string> {
+export function getMapboxToken(): Promise<string> {
   if (MAPBOX_TOKEN_OVERRIDE.startsWith("pk.")) return Promise.resolve(MAPBOX_TOKEN_OVERRIDE);
   tokenPromise ??= fetch(`${SUPABASE_URL}/rest/v1/rpc/get_public_config`, {
     method: "POST",

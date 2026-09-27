@@ -189,3 +189,90 @@ export function HazardIcon({ size = 18, color }: { size?: number; color: string 
     </Svg>
   );
 }
+
+// ---- Category icons (stroke style, 24 grid) --------------------------------
+const sp = (size: number, color: string) => ({
+  width: size,
+  height: size,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: color,
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+});
+
+export function FuelIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Rect x={4} y={4} width={10} height={16} rx={1.5} />
+      <Path d="M4 11h10" />
+      <Path d="M14 8h2.5l2.5 3v6.5a1.5 1.5 0 0 1-3 0V14h-2" />
+    </Svg>
+  );
+}
+
+export function BurgerIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M4 10a8 5 0 0 1 16 0z" />
+      <Path d="M3.5 13.5h17" />
+      <Path d="M4.5 17h15v.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z" />
+    </Svg>
+  );
+}
+
+export function ForkKnifeIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M7 3v7a2 2 0 0 0 2 2v9" />
+      <Path d="M11 3v7a2 2 0 0 1-2 2" />
+      <Path d="M17 21V3c-2 1-3 3.5-3 7h3" />
+    </Svg>
+  );
+}
+
+export function CartIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M3 4h2.5l2 11h10l2-8H6.5" />
+      <Circle cx={9} cy={19.5} r={1.3} />
+      <Circle cx={17} cy={19.5} r={1.3} />
+    </Svg>
+  );
+}
+
+export function CupIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z" />
+      <Path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16" />
+      <Path d="M9 3.5v2M12.5 3.5v2" />
+    </Svg>
+  );
+}
+
+export function PlugIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M13 3l-6 10h5l-1 8 6-10h-5z" />
+    </Svg>
+  );
+}
+
+export function ParkingIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Rect x={4} y={4} width={16} height={16} rx={3} />
+      <Path d="M10 16.5v-9h3a2.5 2.5 0 0 1 0 5h-3" />
+    </Svg>
+  );
+}
+
+export function PharmacyIcon({ size = 18, color }: { size?: number; color: string }) {
+  return (
+    <Svg {...sp(size, color)}>
+      <Path d="M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z" />
+    </Svg>
+  );
+}

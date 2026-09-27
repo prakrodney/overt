@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { ADMIN_CODE } from "../lib/admin";
@@ -19,6 +20,7 @@ export function SearchBar({
   clearOnPick = false,
   onFocusChange,
   onAdminCode,
+  rightAccessory,
 }: {
   theme: T;
   near?: { lat: number; lon: number };
@@ -32,6 +34,8 @@ export function SearchBar({
   onFocusChange?: (focused: boolean) => void;
   /** Called instead of searching when an admin code is typed and submitted. */
   onAdminCode?: (code: string) => void;
+  /** Shown at the right end of the pill when the field is empty (e.g. your avatar). */
+  rightAccessory?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
@@ -136,6 +140,8 @@ export function SearchBar({
           >
             <CloseIcon size={14} color={theme.text} />
           </Pressable>
+        ) : !loading && rightAccessory ? (
+          rightAccessory
         ) : null}
       </View>
 

@@ -23,6 +23,8 @@ import { RouteHeader, RouteSheet } from "./src/components/RouteSheet";
 import { SearchBar } from "./src/components/SearchBar";
 import { WhereToSheet } from "./src/components/WhereToSheet";
 import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
+import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Categories";
+import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
 import { ALERT_LABEL, fetchRoadAlerts, reportRoadAlert, type RoadAlert, type RoadAlertType } from "./src/lib/roadAlerts";
 import { Speedometer, useSpeed } from "./src/components/Speedometer";
 import { Txt } from "./src/components/Txt";
@@ -186,7 +188,8 @@ function MapScreen() {
 
   // ---- Speed (GPS) — also keeps "your location" fresh for directions -----------
   const lastLocRef = useRef<{ lat: number; lon: number } | null>(null);
-  const mph = useSpeed(startRegion != null && !locationDenied, (lat, lon) => {
+  const mph = useSpeed(startRegion != null && !locationDenied, (fix) => {
+    const { lat, lon } = fix;
     const prev = lastLocRef.current;
     // Update the stored location after ~150 m of movement (avoids re-rendering every second).
     if (!prev || Math.abs(prev.lat - lat) > 0.0014 || Math.abs(prev.lon - lon) > 0.0017) {
@@ -261,13 +264,48 @@ function MapScreen() {
     load(startRegion);
   }, [startRegion, load]);
 
+  // ---- Nearby categories (gas, food, groceries…) --------------------------------
+  const [activeCat, setActiveCat] = useState<CategoryId | null>(null);
+  const [catResults, setCatResults] = useState<CategoryPlace[]>([]);
+  const [catLoading, setCatLoading] = useState(false);
+  const [catError, setCatError] = useState<string | null>(null);
+  const catAbort = useRef<AbortController | null>(null);
+  const catRef = useRef<{ id: CategoryId | null; region: Region | null; paused: boolean }>({
+    id: null,
+    region: null,
+    paused: false,
+  });
+  const searchCategory = useCallback((id: CategoryId, r: Region) => {
+    catAbort.current?.abort();
+    const ctrl = new AbortController();
+    catAbort.current = ctrl;
+    catRef.current.region = r;
+    setCatLoading(true);
+    setCatError(null);
+    fetchCategory(id, { lat: r.latitude, lon: r.longitude }, boundsForRegion(r, 0), ctrl.signal)
+      .then((xs) => !ctrl.signal.aborted && setCatResults(xs))
+      .catch((e) => e?.name !== "AbortError" && setCatError("Couldn't search nearby places. Check your connection."))
+      .finally(() => !ctrl.signal.aborted && setCatLoading(false));
+  }, []);
+
   const onRegionChangeComplete = useCallback(
     (r: Region) => {
       setRegion(r);
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => load(r), 200);
+      debounceRef.current = setTimeout(() => {
+        load(r);
+        // Browsing a category: search again once the map has moved or zoomed a fair bit.
+        const c = catRef.current;
+        if (c.id && !c.paused && c.region) {
+          const moved =
+            Math.abs(r.latitude - c.region.latitude) > c.region.latitudeDelta * 0.3 ||
+            Math.abs(r.longitude - c.region.longitude) > c.region.longitudeDelta * 0.3 ||
+            Math.abs(Math.log(r.latitudeDelta / c.region.latitudeDelta)) > 0.4;
+          if (moved) searchCategory(c.id, r);
+        }
+      }, 350);
     },
-    [load]
+    [load, searchCategory]
   );
 
   const zoomIntoCluster = useCallback((c: CameraCluster) => {
@@ -514,6 +552,7 @@ function MapScreen() {
   const showCones = zoom >= 13;
   const showHome =
     startRegion != null &&
+    !activeCat &&
     !reporting &&
     !inRouteMode &&
     !selected &&
@@ -521,7 +560,34 @@ function MapScreen() {
     !searchPin &&
     !searchFocused &&
     !settingSlot;
-  const homeH = showHome && sheetH ? sheetH : 0;
+  const showCat =
+    activeCat != null && startRegion != null && !reporting && !inRouteMode && !selected && !selectedAlert && !searchPin;
+  const chipsVisible =
+    startRegion != null && !reporting && !inRouteMode && !searchFocused && !settingSlot && !selected && !selectedAlert;
+  const homeH = (showHome || showCat) && sheetH ? sheetH : 0;
+  const controlsTop = insets.top + (inRouteMode ? 112 : chipsVisible ? 118 : 74);
+  // Don't re-search while a place from the list is open.
+  catRef.current.id = activeCat;
+  catRef.current.paused = searchPin != null || inRouteMode;
+
+  const pickCategory = (id: CategoryId | null) => {
+    Keyboard.dismiss();
+    setActiveCat(id);
+    setCatResults([]);
+    setCatError(null);
+    catAbort.current?.abort();
+    setCatLoading(false);
+    if (!id) return;
+    setSearchPin(null);
+    let r = regionRef.current;
+    // Zoomed way out? Search around you instead of the whole map.
+    if (r.latitudeDelta > 0.5) {
+      const c = userLoc ?? { lat: r.latitude, lon: r.longitude };
+      r = { latitude: c.lat, longitude: c.lon, latitudeDelta: 0.08, longitudeDelta: 0.08 };
+      mapRef.current?.animateToRegion(r, 500);
+    }
+    searchCategory(id, r);
+  };
   const shadow = {
     shadowColor: theme.shadowColor,
     shadowOpacity: theme.isDark ? 0.4 : 0.12,
@@ -583,6 +649,9 @@ function MapScreen() {
         {layer.clusters.map((c) => (
           <ClusterMarker key={`${c.id}-${c.count}`} cluster={c} theme={theme} onPress={zoomIntoCluster} />
         ))}
+        {activeCat && !inRouteMode
+          ? catResults.map((p) => <CategoryPin key={`cp-${p.id}`} place={p} theme={theme} onPress={(x) => goToPlace(x)} />)
+          : null}
         {alerts.map((a) => (
           <RoadAlertMarker
             key={`ra-${a.id}`}
@@ -679,11 +748,11 @@ function MapScreen() {
       </MapView>
       ) : null}
 
-      {!reporting ? <Speedometer theme={theme} mph={mph} top={insets.top + (inRouteMode ? 112 : 74)} /> : null}
+      {!reporting ? <Speedometer theme={theme} mph={mph} top={controlsTop} /> : null}
 
       {/* Recenter */}
       <View
-        style={[styles.controls, { top: insets.top + (inRouteMode ? 112 : 74), backgroundColor: theme.control }, shadow]}
+        style={[styles.controls, { top: controlsTop, backgroundColor: theme.control }, shadow]}
       >
         <Pressable
           onPress={() => flyToUser(true)}
@@ -730,6 +799,7 @@ function MapScreen() {
             }}
           />
         )}
+        {chipsVisible ? <CategoryChips theme={theme} active={activeCat} onPick={pickCategory} /> : null}
         {settingSlot && !reporting && !inRouteMode ? (
           <View style={[styles.toast, styles.settingRow, { backgroundColor: theme.control }, shadow]}>
             <Txt weight="medium" style={{ color: theme.text, fontSize: 14, flex: 1 }}>
@@ -898,6 +968,17 @@ function MapScreen() {
             setSearchPin(null);
             setRouteError(null);
           }}
+        />
+      ) : showCat && activeCat ? (
+        <CategorySheet
+          theme={theme}
+          category={activeCat}
+          results={catResults}
+          loading={catLoading}
+          error={catError}
+          onPick={(p) => goToPlace(p)}
+          onClose={() => pickCategory(null)}
+          onLayoutHeight={setSheetH}
         />
       ) : showHome ? (
         <WhereToSheet

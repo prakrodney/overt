@@ -22,6 +22,7 @@ that's in OpenStreetMap, and runs in **Expo Go**.
 | Speed cameras (OSM `highway=speed_camera`): amber markers and dots, own sheet title and speed limit, counted separately on routes, reportable | `category = 'speed_camera'`, migration 0014 |
 | Speedometer: GPS speed in mph (top-left) while driving; hides after a minute stopped | `src/components/Speedometer.tsx` |
 | Live road alerts: **Report** → Police / Crash / Object on road, placed at your spot; last 1 hour (a duplicate report or "Still there" restarts the hour, never adds; 3 h max), removed by 2 "Not there" (or the reporter); 3 alerts/hour, 10/day per person; deleted a day after expiry | `src/components/RoadAlerts.tsx`, `src/lib/roadAlerts.ts`, migration 0015 |
+| Nearby categories: chips under the search bar (Gas, Fast food, Restaurants, Groceries, Coffee, EV charging, Parking, Pharmacy) → pins + list for the visible area, tap for Directions (Mapbox Search Box category API; only the map centre/area is sent) | `src/components/Categories.tsx`, `src/lib/categories.ts` |
 | Route preview: tap a search result, then **Directions** for up to 3 Mapbox routes with ETA, distance, tolls and documented cameras on each | `src/lib/directions.ts`, `src/lib/routeCameras.ts`, `src/components/RouteSheet.tsx` |
 
 ## Run it on your iPhone
