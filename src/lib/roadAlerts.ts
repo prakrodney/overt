@@ -58,8 +58,9 @@ export async function reportRoadAlert(type: RoadAlertType) {
   });
 }
 
-export async function voteRoadAlert(id: number, vote: "still_there" | "gone") {
-  const me = await here();
+/** `at` = where you were when you passed it (for the pop-up question, answered a few seconds later). */
+export async function voteRoadAlert(id: number, vote: "still_there" | "gone", at?: { lat: number; lon: number }) {
+  const me = at ?? (await here());
   return rpcAuthed<Partial<RoadAlert> & { removed?: boolean; noted?: boolean }>("vote_road_alert", {
     p_alert_id: id,
     p_vote: vote,

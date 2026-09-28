@@ -200,17 +200,17 @@ export function SettingsSheet({
             <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
-                  Ask "Still here?" about cameras
+                  Ask "Still there?" about reports
                 </Txt>
                 <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
-                  After you drive past a camera, one tap says if it's still there. Best answered by a passenger.
+                  After you pass a police, crash or object report, one tap says if it's still there. Best answered by a passenger.
                 </Txt>
               </View>
               <Switch
                 value={prefs.askStillHere}
                 onValueChange={(v) => setPref("askStillHere", v)}
                 trackColor={{ true: theme.accent }}
-                accessibilityLabel="Ask if cameras are still there"
+                accessibilityLabel="Ask if reports are still there"
               />
             </View>
           </View>

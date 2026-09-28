@@ -40,6 +40,8 @@ export type Contributions = {
   confirms: number;
   gone: number;
   alerts: number;
+  /** "Still there" / "Not there" answers on police, crash and object reports. */
+  alert_votes?: number;
   trust: number;
   friends: number;
 };
@@ -60,7 +62,7 @@ export type Badge = {
 };
 
 export function badgesFor(c: Contributions): Badge[] {
-  const checks = c.confirms + c.gone;
+  const checks = c.confirms + c.gone + (c.alert_votes ?? 0);
   const total = c.cameras + checks + c.alerts;
   const b = (id: string, name: string, how: string, have: number, need: number, color: string): Badge => ({
     id,
@@ -74,8 +76,8 @@ export function badgesFor(c: Contributions): Badge[] {
     b("first", "First report", "Report or confirm anything once", total, 1, "#4A4FD6"),
     b("spotter", "Spotter", "Add 5 cameras to the map", c.cameras, 5, "#E0352B"),
     b("eagle", "Eagle eye", "Add 25 cameras to the map", c.cameras, 25, "#B0186E"),
-    b("checker", "Fact checker", "Answer \"Still here?\" 10 times", checks, 10, "#17863F"),
-    b("squad", "Truth squad", "Answer \"Still here?\" 50 times", checks, 50, "#0E6B5C"),
+    b("checker", "Fact checker", "Answer \"Still there?\" 10 times", checks, 10, "#17863F"),
+    b("squad", "Truth squad", "Answer \"Still there?\" 50 times", checks, 50, "#0E6B5C"),
     b("helper", "Road helper", "Report 10 police, crashes or objects", c.alerts, 10, "#D98200"),
     b("trusted", "Trusted reporter", "Get your camera reports confirmed by others", c.trust, 50, "#2458E6"),
     b("friend", "Good friend", "Invite a friend who joins", c.friends, 1, "#8E44C9"),

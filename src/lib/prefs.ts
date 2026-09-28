@@ -7,7 +7,7 @@ export type MapStyle = "mutedStandard" | "standard" | "satellite" | "hybrid";
 export type Prefs = {
   driveAlerts: boolean;
   mapStyle: MapStyle;
-  /** Ask "Is this camera still here?" after you drive past one. */
+  /** Ask "Still there?" after you drive past a police, crash or object report. */
   askStillHere: boolean;
   /** Pro: say something when you're over the speed limit. */
   speedWarn: boolean;

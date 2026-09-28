@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ALERT_LABEL,
   minutesAgo,
-  minutesLeft,
   voteRoadAlert,
   type RoadAlert,
   type RoadAlertType,
@@ -121,7 +120,6 @@ export function RoadAlertSheet({
   }, []);
 
   const { bg, fg } = alertColors(alert.type, theme);
-  const left = minutesLeft(alert.expires_at);
   const meta = [
     `Reported ${minutesAgo(alert.created_at)}`,
     alert.confirm_count
@@ -136,7 +134,7 @@ export function RoadAlertSheet({
     try {
       const r = await voteRoadAlert(alert.id, v);
       if (r.removed) onMessage(alert.mine ? "Your report was removed." : "Thanks! It's been taken off the map.");
-      else if (v === "still_there") onMessage("Thanks! It'll stay on the map for another hour.");
+      else if (v === "still_there") onMessage("Thanks for confirming!");
       else onMessage("Thanks! If others agree, it'll be taken off the map.");
       onChanged();
       onClose();
@@ -193,9 +191,6 @@ export function RoadAlertSheet({
             {TITLE[alert.type]}
           </Txt>
           <Txt style={{ fontSize: 14, color: theme.textSecondary }}>{meta}</Txt>
-          <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
-            {left <= 1 ? "Disappears in a minute" : `Disappears in ${left} min unless someone confirms it`}
-          </Txt>
         </View>
         <Pressable
           onPress={onClose}

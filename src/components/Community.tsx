@@ -31,17 +31,17 @@ type T = Theme & { isDark: boolean };
 
 // ---- "Still here?" -----------------------------------------------------------------------------
 
-/** Asked right after you drive past a camera. Big buttons; goes away on its own. */
+/** Asked right after you drive past a police, crash or object report. Big buttons; goes away on its own. */
 export function StillHerePrompt({
   theme,
-  label,
+  question,
   bottom,
   onAnswer,
   onDismiss,
 }: {
   theme: T;
-  /** "plate reader", "speed camera"… */
-  label: string;
+  /** e.g. "Are the police still there?" */
+  question: string;
   /** Float above the bottom of the screen (while navigating); otherwise it sits in the page flow. */
   bottom?: number;
   onAnswer: (stillThere: boolean) => void;
@@ -65,7 +65,7 @@ export function StillHerePrompt({
     >
       <View style={styles.promptHead}>
         <Txt weight="bold" style={{ flex: 1, fontSize: 16, color: theme.text }}>
-          Was that {label} still there?
+          {question}
         </Txt>
         <Pressable
           onPress={onDismiss}
@@ -93,7 +93,7 @@ export function StillHerePrompt({
           style={({ pressed }) => [styles.bigBtn, { backgroundColor: theme.badBg, opacity: pressed ? 0.8 : 1 }]}
         >
           <Txt weight="bold" style={{ fontSize: 16, color: theme.badText }}>
-            It's gone
+            Not there
           </Txt>
         </Pressable>
       </View>

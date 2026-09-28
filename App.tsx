@@ -56,7 +56,7 @@ import { isEnforcement } from "./src/lib/cameras";
 import { arrivalTime, NavEngine, type Hazard, type NavUpdate } from "./src/lib/navEngine";
 import { loadMuted, say, setMuted as setVoiceMuted, stopSpeaking } from "./src/lib/voice";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { ALERT_LABEL, fetchRoadAlerts, reportRoadAlert, type RoadAlert, type RoadAlertType } from "./src/lib/roadAlerts";
+import { ALERT_LABEL, fetchRoadAlerts, reportRoadAlert, voteRoadAlert, type RoadAlert, type RoadAlertType } from "./src/lib/roadAlerts";
 import { SPEEDING_MARGIN, Speedometer, useSpeed } from "./src/components/Speedometer";
 import { Txt } from "./src/components/Txt";
 import { fetchCameraLayer, type CameraCluster, type CameraLayer, type CameraPoint } from "./src/lib/cameras";
@@ -64,7 +64,7 @@ import type { Place } from "./src/lib/geocode";
 import { fetchRoutes, type RouteOption } from "./src/lib/directions";
 import { camerasAlongRoutesDetailed } from "./src/lib/routeCameras";
 import { findFewerCamerasRoute } from "./src/lib/fewerCameras";
-import { reportNewPoint, voteOnPoint } from "./src/lib/reports";
+import { reportNewPoint } from "./src/lib/reports";
 import { adminStatus, claimAdmin } from "./src/lib/admin";
 import { boundsForRegion, zoomForRegion } from "./src/lib/geo";
 import {
@@ -941,26 +941,28 @@ function MapScreen() {
   });
   const watcherRef = useRef(new DriveWatcher());
   const passRef = useRef(new PassTracker());
-  const driveCtx = useRef({ on: false, alerts: [] as RoadAlert[], voice: false, ask: false, pro: false });
+  const driveCtx = useRef({ on: false, alerts: [] as RoadAlert[], voice: false, ask: false });
   driveCtx.current = {
     on: isPro && prefs.driveAlerts && !navActive,
     alerts: visibleAlerts,
     voice: isPro && !muted,
     ask: prefs.askStillHere && !reporting,
-    pro: isPro,
   };
   speedWarnRef.current = isPro && prefs.speedWarn && !muted;
 
-  // "Still here?" after you drive past a camera (free). At most one question every 4 minutes.
-  const [stillHere, setStillHere] = useState<{ id: number; label: string; at: { lat: number; lon: number } } | null>(null);
+  // "Still there?" after you drive past a police, crash or object report (free; not for cameras).
+  // At most one question every 2 minutes.
+  const [stillHere, setStillHere] = useState<{ id: number; question: string; at: { lat: number; lon: number } } | null>(null);
   const lastAskRef = useRef(0);
   const answerStillHere = useCallback(
     (yes: boolean) => {
       const q = stillHere;
       setStillHere(null);
       if (!q) return;
-      voteOnPoint(q.id, yes ? "confirm" : "gone", q.at)
-        .then(() => showToast(yes ? "Thanks! Marked as still there." : "Thanks! We'll check on that camera."))
+      voteRoadAlert(q.id, yes ? "still_there" : "gone", q.at)
+        .then((r) =>
+          showToast(r.removed ? "Thanks! It's been taken off the map." : yes ? "Thanks for confirming!" : "Thanks! If others agree, it'll be taken off the map.")
+        )
         .catch((e) => showToast(e?.message ?? "Couldn't send that. Try again."));
     },
     [stillHere, showToast]
@@ -970,8 +972,27 @@ function MapScreen() {
   driveFixRef.current = (fix) => {
     const ctx = driveCtx.current;
     if (!ctx.on && !ctx.ask) return;
+    // Passed a police, crash or object report? Ask if it's still there.
+    if (ctx.ask) {
+      const others = ctx.alerts.filter((a) => !a.mine);
+      const passed = passRef.current.update(
+        fix,
+        others.map((a) => ({ key: String(a.id), lat: a.lat, lon: a.lon }))
+      );
+      if (passed.length && Date.now() - lastAskRef.current > 2 * 60_000) {
+        const a = others.find((x) => String(x.id) === passed[0]);
+        if (a) {
+          lastAskRef.current = Date.now();
+          setStillHere({
+            id: a.id,
+            question: a.type === "police" ? "Are the police still there?" : a.type === "crash" ? "Is the crash still there?" : "Is the object still on the road?",
+            at: { lat: fix.lat, lon: fix.lon }, // where you were just now (just past it)
+          });
+        }
+      }
+    }
+    if (!ctx.on) return;
     const near = nearbyCamsRef.current;
-    if ((fix.mph ?? 0) < 5 && !near.at) return; // not driving yet
     if (!near.busy && (!near.at || metersBetween(near.at, fix) > 1500)) {
       near.busy = true;
       fetchNearbyCams(fix.lat, fix.lon)
@@ -982,26 +1003,6 @@ function MapScreen() {
         .catch(() => {})
         .finally(() => (near.busy = false));
     }
-    // Passed a camera? Maybe ask if it's still there.
-    if (ctx.ask) {
-      const visible = near.cams.filter((c) => ctx.pro || !c.speed);
-      const passed = passRef.current.update(
-        fix,
-        visible.map((c) => ({ key: String(c.id), lat: c.lat, lon: c.lon }))
-      );
-      if (passed.length && Date.now() - lastAskRef.current > 4 * 60_000) {
-        const cam = visible.find((c) => String(c.id) === passed[0]);
-        if (cam) {
-          lastAskRef.current = Date.now();
-          setStillHere({
-            id: cam.id,
-            label: cam.kind === "speed" ? "speed camera" : cam.kind === "red_light" ? "red-light camera" : "plate reader",
-            at: { lat: fix.lat, lon: fix.lon }, // where you were just now (~70 m past it)
-          });
-        }
-      }
-    }
-    if (!ctx.on) return;
     const items: AheadItem[] = [
       ...near.cams.map((c) => ({ key: `c${c.id}`, lat: c.lat, lon: c.lon, dir: c.dir, kind: c.kind, label: CAM_LABEL[c.kind] })),
       ...ctx.alerts.map((a) => ({ key: `a${a.id}`, lat: a.lat, lon: a.lon, dir: null, kind: a.type, label: CAM_LABEL[a.type] })),
@@ -1041,10 +1042,10 @@ function MapScreen() {
         const a = await reportRoadAlert(type);
         showToast(
           a.merged
-            ? `Thanks! ${ALERT_LABEL[type]} was already reported here, so we kept it up for another hour.`
+            ? `Thanks! ${ALERT_LABEL[type]} was already reported here.`
             : type === "police" && !proRef.current
-              ? "Thanks! Police reported for the next hour. Seeing police alerts is part of Pro."
-              : `Thanks! ${ALERT_LABEL[type]} will show here for the next hour.`
+              ? "Thanks! Police reported. Seeing police alerts is part of Pro."
+              : `Thanks! ${ALERT_LABEL[type]} reported.`
         );
         setAlerts((xs) => [a, ...xs.filter((x) => x.id !== a.id)]);
       } catch (e: any) {
@@ -1397,7 +1398,7 @@ function MapScreen() {
       {navActive && stillHere ? (
         <StillHerePrompt
           theme={theme}
-          label={stillHere.label}
+          question={stillHere.question}
           bottom={navFooterH + 108}
           onAnswer={answerStillHere}
           onDismiss={dismissStillHere}
@@ -1513,7 +1514,7 @@ function MapScreen() {
           </View>
         ) : null}
         {!navActive && stillHere && !reporting ? (
-          <StillHerePrompt theme={theme} label={stillHere.label} onAnswer={answerStillHere} onDismiss={dismissStillHere} />
+          <StillHerePrompt theme={theme} question={stillHere.question} onAnswer={answerStillHere} onDismiss={dismissStillHere} />
         ) : null}
         {loadError ? (
           <View style={[styles.toast, { backgroundColor: theme.control }, shadow]}>
@@ -1589,7 +1590,7 @@ function MapScreen() {
             ActionSheetIOS.showActionSheetWithOptions(
               {
                 title: "What do you see?",
-                message: "Police, crashes and objects are reported where you are now and last an hour.",
+                message: "Police, crashes and objects are reported where you are now.",
                 options: isPro
                   ? ["Police", "Crash", "Object on road", "Camera (plate reader or speed)", "Cancel"]
                   : ["Police", "Crash", "Object on road", "Plate reader camera", "Cancel"],
