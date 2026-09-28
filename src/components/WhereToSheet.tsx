@@ -21,7 +21,6 @@ export function WhereToSheet({
   onClearSlot,
   onRemoveRecent,
   onLayoutHeight,
-  commute = null,
   favorites = null,
 }: {
   theme: T;
@@ -34,12 +33,6 @@ export function WhereToSheet({
   onClearSlot: (slot: Slot) => void;
   onRemoveRecent: (id: string) => void;
   onLayoutHeight: (h: number) => void;
-  /** Pro commute watch (shown when Home and Work are set). */
-  commute?: {
-    locked: boolean;
-    status: { cameras: number; newCameras: number; minutes: number } | null;
-    onPress: () => void;
-  } | null;
   /** Pro saved places ("Gym", "Mom's house"). */
   favorites?: {
     locked: boolean;
@@ -190,39 +183,6 @@ export function WhereToSheet({
           ) : null}
         </ScrollView>
       ) : null}
-      {commute ? (
-        <Pressable
-          onPress={commute.onPress}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.commute, { backgroundColor: theme.subtle, opacity: pressed ? 0.75 : 1 }]}
-        >
-          <View style={{ flex: 1, gap: 1 }}>
-            <Txt weight="semibold" style={{ fontSize: 14, color: theme.text }}>
-              Commute watch
-            </Txt>
-            <Txt style={{ fontSize: 13, color: theme.textSecondary }} numberOfLines={1}>
-              {commute.locked
-                ? "Get told when new plate readers show up on your commute"
-                : commute.status
-                  ? `${commute.status.cameras} plate ${commute.status.cameras === 1 ? "reader" : "readers"} Home → Work · ${commute.status.minutes} min`
-                  : "Checking your Home → Work route…"}
-            </Txt>
-          </View>
-          {commute.locked ? (
-            <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
-              <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
-                PRO
-              </Txt>
-            </View>
-          ) : commute.status && commute.status.newCameras > 0 ? (
-            <View style={[styles.proTag, { backgroundColor: theme.badBg }]}>
-              <Txt weight="bold" style={{ fontSize: 12, color: theme.badText }}>
-                {commute.status.newCameras} new
-              </Txt>
-            </View>
-          ) : null}
-        </Pressable>
-      ) : null}
       <ScrollView style={{ maxHeight: showAll ? 300 : undefined }} contentContainerStyle={{ gap: 14 }} scrollEnabled={showAll}>
       {shown.map((r) => (
         <Pressable
@@ -303,7 +263,6 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: 10 },
   tile: { flex: 1, padding: 14, borderRadius: 16, gap: 6 },
   recent: { flexDirection: "row", alignItems: "center", gap: 12 },
-  commute: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
   proTag: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7 },
   fav: { flexDirection: "row", alignItems: "center", gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 18 },
   removeBtn: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },

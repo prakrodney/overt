@@ -65,7 +65,6 @@ export function RouteSheet({
   error,
   searchingFewer = false,
   onStart,
-  avoidAll,
   avoidHighways = false,
   onToggleHighways,
   leave,
@@ -89,14 +88,6 @@ export function RouteSheet({
   searchingFewer?: boolean;
   /** Start turn-by-turn on the selected route. */
   onStart?: () => void;
-  /** Pro "avoid all plate readers" mode and how much extra time is OK. */
-  avoidAll?: {
-    on: boolean;
-    extraMin: number | null; // null = any amount
-    locked: boolean;
-    onToggle: () => void;
-    onExtra: (m: number | null) => void;
-  };
   avoidHighways?: boolean;
   onToggleHighways?: () => void;
   /** Pro "leave later": planned departure time (ms) or null for now. */
@@ -182,71 +173,11 @@ export function RouteSheet({
         </View>
       ) : null}
 
-      {avoidAll ? (
-        <View style={{ gap: 8 }}>
-          <Pressable
-            onPress={avoidAll.onToggle}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: avoidAll.on && !avoidAll.locked }}
-            style={({ pressed }) => [
-              styles.avoidRow,
-              {
-                backgroundColor: avoidAll.on && !avoidAll.locked ? theme.badgeBg : theme.subtle,
-                borderColor: avoidAll.on && !avoidAll.locked ? theme.accentIcon : "transparent",
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <CameraFilledIcon color={avoidAll.on && !avoidAll.locked ? theme.badgeText : theme.text} />
-            <Txt weight="semibold" style={{ flex: 1, fontSize: 15, color: avoidAll.on && !avoidAll.locked ? theme.badgeText : theme.text }}>
-              Avoid all plate readers
-            </Txt>
-            {avoidAll.locked ? (
-              <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
-                <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
-                  PRO
-                </Txt>
-              </View>
-            ) : (
-              <Txt weight="bold" style={{ fontSize: 13, color: avoidAll.on ? theme.badgeText : theme.textSecondary }}>
-                {avoidAll.on ? "ON" : "OFF"}
-              </Txt>
-            )}
-          </Pressable>
-          {avoidAll.on && !avoidAll.locked ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Txt style={{ fontSize: 13, color: theme.textSecondary }}>Extra time OK:</Txt>
-              {([5, 10, 20, null] as const).map((m) => {
-                const on = avoidAll.extraMin === m;
-                return (
-                  <Pressable
-                    key={String(m)}
-                    onPress={() => avoidAll.onExtra(m)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    style={[
-                      styles.miniChip,
-                      on
-                        ? { backgroundColor: theme.accent, borderColor: theme.accent }
-                        : { backgroundColor: theme.surface, borderColor: theme.outline },
-                    ]}
-                  >
-                    <Txt weight="semibold" style={{ fontSize: 13, color: on ? theme.onAccent : theme.text }}>
-                      {m == null ? "Any" : `+${m} min`}
-                    </Txt>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
       {error ? <Txt style={{ color: theme.badText, fontSize: 14 }}>{error}</Txt> : null}
       {searchingFewer ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ActivityIndicator size="small" color={theme.textSecondary} />
-          <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>Looking for a route with fewer plate readers…</Txt>
+          <Txt style={{ color: theme.textSecondary, fontSize: 13 }}>Looking for a route with no plate readers…</Txt>
         </View>
       ) : null}
       {countError ? (
@@ -429,9 +360,7 @@ const styles = StyleSheet.create({
   },
   handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  avoidRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, height: 44, borderRadius: 14, borderWidth: 1.5 },
   proTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  miniChip: { height: 30, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, fontSize: 20, letterSpacing: -0.2 },
   chip: {
     height: 36,

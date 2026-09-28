@@ -14,13 +14,17 @@ import { camerasAlongRoutesDetailed, type Cam } from "./routeCameras";
 const MAX_AVOID = 50; // Mapbox limit on excluded points per request
 const MAX_TRIES = 6;
 
-/** The point on the route polyline closest to the camera. */
-function closestPointOnRoute(route: RouteOption, cam: Cam): LatLng {
+/**
+ * Points on the route polyline near the camera: the closest one, and (with `spread`) points
+ * `spread` metres before and after it along the line. A camera at an intersection can make a
+ * single point snap to the cross street; points a little way up and down the road itself can't.
+ */
+function pointsNearCamera(route: RouteOption, cam: Cam, spread = 0): LatLng[] {
+  const c = route.coords;
   const k = Math.cos((cam.lat * Math.PI) / 180) * 111320;
-  let best: LatLng = route.coords[0];
-  let bestD = Infinity;
-  for (let i = 1; i < route.coords.length; i++) {
-    const a = route.coords[i - 1], b = route.coords[i];
+  let bestI = 1, bestT = 0, bestD = Infinity;
+  for (let i = 1; i < c.length; i++) {
+    const a = c[i - 1], b = c[i];
     const ax = (a.longitude - cam.lon) * k, ay = (a.latitude - cam.lat) * 110540;
     const bx = (b.longitude - cam.lon) * k, by = (b.latitude - cam.lat) * 110540;
     const dx = bx - ax, dy = by - ay;
@@ -30,13 +34,33 @@ function closestPointOnRoute(route: RouteOption, cam: Cam): LatLng {
     const d = x * x + y * y;
     if (d < bestD) {
       bestD = d;
-      best = {
-        latitude: a.latitude + t * (b.latitude - a.latitude),
-        longitude: a.longitude + t * (b.longitude - a.longitude),
-      };
+      bestI = i;
+      bestT = t;
     }
   }
-  return best;
+  const lerp = (i: number, t: number): LatLng => ({
+    latitude: c[i - 1].latitude + t * (c[i].latitude - c[i - 1].latitude),
+    longitude: c[i - 1].longitude + t * (c[i].longitude - c[i - 1].longitude),
+  });
+  const out = [lerp(bestI, bestT)];
+  if (!spread) return out;
+  const segLen = (i: number) =>
+    Math.hypot((c[i].longitude - c[i - 1].longitude) * k, (c[i].latitude - c[i - 1].latitude) * 110540);
+  // Walk `spread` metres forward, then backward, from the closest point.
+  const walk = (dir: 1 | -1) => {
+    let i = bestI, t = bestT, left = spread;
+    while (true) {
+      const len = segLen(i) || 1e-6;
+      const room = dir > 0 ? (1 - t) * len : t * len;
+      if (left <= room) return lerp(i, t + (dir * left) / len);
+      left -= room;
+      i += dir;
+      if (i < 1 || i >= c.length) return null; // ran off the start / end of the route
+      t = dir > 0 ? 0 : 1;
+    }
+  };
+  for (const p of [walk(1), walk(-1)]) if (p) out.push(p);
+  return out;
 }
 
 export async function findFewerCamerasRoute(
@@ -61,15 +85,16 @@ export async function findFewerCamerasRoute(
 
   // Excluded road points, keyed by camera + rounded position so the same spot isn't sent twice.
   const avoid = new Map<string, LatLng>();
-  const addFrom = (route: RouteOption, cams: Cam[]) => {
+  const addFrom = (route: RouteOption, cams: Cam[], spread = 0) => {
     let added = 0;
     for (const c of cams) {
-      if (avoid.size >= MAX_AVOID) break;
-      const p = closestPointOnRoute(route, c);
-      const key = `${p.latitude.toFixed(4)},${p.longitude.toFixed(4)}`;
-      if (!avoid.has(key)) {
-        avoid.set(key, p);
-        added++;
+      for (const p of pointsNearCamera(route, c, spread)) {
+        if (avoid.size >= MAX_AVOID) return added;
+        const key = `${p.latitude.toFixed(4)},${p.longitude.toFixed(4)}`;
+        if (!avoid.has(key)) {
+          avoid.set(key, p);
+          added++;
+        }
       }
     }
     return added;
@@ -120,7 +145,9 @@ export async function findFewerCamerasRoute(
     }
     const n = cams[j].length;
     if (n === 0 || avoid.size >= MAX_AVOID) break;
-    if (addFrom(rs[j], cams[j]) === 0) break; // nothing new to avoid
+    // Still passing the same cameras? Also block the road a little before and after them
+    // (an intersection camera's own spot can snap to the cross street), then wider.
+    if (addFrom(rs[j], cams[j]) === 0 && addFrom(rs[j], cams[j], 40) === 0 && addFrom(rs[j], cams[j], 90) === 0) break;
   }
 
   // Only offer it if it actually beats every normal route, and fits the time limit.

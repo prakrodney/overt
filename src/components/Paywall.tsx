@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PRO_PRICE, startTrial, trialLeftText, TRIAL_DAYS, usePro } from "../lib/pro";
 import type { Theme } from "../theme";
-import { CameraGlyph, CheckIcon, ClockIcon, CloseIcon, HomeIcon, PinIcon, PoliceIcon, SpeedGlyph } from "./Icons";
+import { CameraGlyph, CheckIcon, ClockIcon, CloseIcon, PinIcon, PoliceIcon, SpeedGlyph } from "./Icons";
 import { ManeuverIcon, SpeakerIcon } from "./Navigation";
 import { DensityIcon } from "./Community";
 import { Txt } from "./Txt";
@@ -134,13 +134,6 @@ export function Paywall({
               icon={<DensityIcon size={22} color={theme.badText} />}
               title="Camera density map"
               body="See which neighborhoods have the most plate readers."
-            />
-            <Feature
-              theme={theme}
-              bg={theme.redLightFill}
-              icon={<HomeIcon size={20} color={theme.redLightGlyph} />}
-              title="Commute watch"
-              body="Know when a new plate reader shows up between Home and Work."
             />
             <Feature
               theme={theme}

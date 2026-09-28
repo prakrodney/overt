@@ -34,7 +34,7 @@ import { WhereToSheet } from "./src/components/WhereToSheet";
 import { RoadAlertMarker, RoadAlertSheet } from "./src/components/RoadAlerts";
 import { CategoryChips, CategoryPin, CategorySheet } from "./src/components/Categories";
 import { fetchCategory, type CategoryId, type CategoryPlace } from "./src/lib/categories";
-import { NavBanner, NavPanel, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
+import { NavBanner, NavPanel, OverviewButton, RecenterPill, SpeakerIcon } from "./src/components/Navigation";
 import { SettingsSheet } from "./src/components/SettingsSheet";
 import { Paywall } from "./src/components/Paywall";
 import { PrivacyReportSheet } from "./src/components/PrivacyReport";
@@ -48,7 +48,6 @@ import {
   type AheadItem,
 } from "./src/lib/driveAlerts";
 import { recordPassed, recordTrip } from "./src/lib/privacyReport";
-import { checkCommute, type CommuteStatus } from "./src/lib/commuteWatch";
 import { usePrefs } from "./src/lib/prefs";
 import type { Cam } from "./src/lib/routeCameras";
 import { setAdminPro, usePro } from "./src/lib/pro";
@@ -519,11 +518,6 @@ function MapScreen() {
     });
   }, []);
 
-  // Pro: "avoid all plate readers" with an extra-time budget.
-  const [avoidAll, setAvoidAll] = useState(false);
-  const [extraMin, setExtraMin] = useState<number | null>(10);
-  const avoidAllRef = useRef({ on: false, extraMin: 10 as number | null });
-  avoidAllRef.current = { on: avoidAll, extraMin };
 
   type RouteOpts = { tolls: boolean; highways: boolean; departAt: number | null; stops: SavedPlace[] };
   const loadRoutes = useCallback(
@@ -594,19 +588,15 @@ function MapScreen() {
             show(rs, counts, speeds, reds);
             if (Math.min(...counts) === 0) return;
             setSearchingFewer(true);
-            const strict = avoidAllRef.current.on;
+            // Always look hard for a route with no plate readers (any extra time); it's listed first as Safest.
             const fewer = await findFewerCamerasRoute(fromLL, toLL, rs, cams, {
               avoidTolls: tolls,
               avoidHighways: o.highways,
               stops: stopLL,
               departAt: leaveAt,
               signal: ctrl.signal,
-              ...(strict
-                ? {
-                    maxExtraSec: avoidAllRef.current.extraMin == null ? Infinity : avoidAllRef.current.extraMin * 60,
-                    tries: 7,
-                  }
-                : {}),
+              maxExtraSec: Infinity,
+              tries: 7,
             }).finally(() => setSearchingFewer(false));
             if (fewer && !ctrl.signal.aborted) {
               show([...rs, fewer.route], [...counts, fewer.cameras], [...speeds, fewer.speedCameras], [...reds, fewer.redLights]);
@@ -651,8 +641,28 @@ function MapScreen() {
 
   // Pro: stops on the way.
   addStopRef.current = (p: Place) => {
-    if (!searchPin) return;
     const same = (a: { lat: number; lon: number }) => Math.abs(a.lat - p.lat) < 0.0003 && Math.abs(a.lon - p.lon) < 0.0003;
+    // During a trip: the new stop comes next, then the route is worked out again from where you are.
+    const n = navStateRef.current;
+    if (n) {
+      if (same(n.dest) || n.stops.some(same)) {
+        showToast("That place is already on this trip.");
+        return;
+      }
+      if (n.stops.length >= MAX_STOPS) {
+        showToast(`You can have up to ${MAX_STOPS} stops.`);
+        return;
+      }
+      const next = { ...n, stops: [{ id: `${p.id}`, name: p.name, subtitle: p.subtitle, lat: p.lat, lon: p.lon }, ...n.stops] };
+      navStateRef.current = next;
+      setNav(next);
+      setFollow(true);
+      const at = lastNavFixRef.current ?? userLoc;
+      if (at) reroute(at, `Adding a stop at ${p.name}.`);
+      showToast(`Stop added: ${p.name}`);
+      return;
+    }
+    if (!searchPin) return;
     if (same(searchPin) || stops.some(same)) {
       showToast("That place is already on this trip.");
       return;
@@ -751,6 +761,7 @@ function MapScreen() {
   const [follow, setFollow] = useState(true);
   const [muted, setMutedState] = useState(false);
   const [navFooterH, setNavFooterH] = useState(0);
+  const [panelSignal, setPanelSignal] = useState(0);
   const engineRef = useRef<NavEngine | null>(null);
   const navStateRef = useRef(nav);
   navStateRef.current = nav;
@@ -805,34 +816,66 @@ function MapScreen() {
     applyHazards();
   }, [visibleAlerts, navActive, navRoute, applyHazards]);
 
+  const lastNavFixRef = useRef<{ lat: number; lon: number } | null>(null);
+  const lastPassesSaidRef = useRef(0);
   const reroute = useCallback(
-    async (at: { lat: number; lon: number }) => {
+    async (at: { lat: number; lon: number }, announce = "Rerouting.") => {
       const n = navStateRef.current;
       if (!n) return;
       reroutingRef.current = true;
       lastRerouteRef.current = Date.now();
       setRerouting(true);
-      if (proRef.current) say("Rerouting.");
+      if (proRef.current) say(announce);
       try {
         const from = { latitude: at.lat, longitude: at.lon };
         const to = { latitude: n.dest.lat, longitude: n.dest.lon };
         const stopLL = n.stops.map((x) => ({ latitude: x.lat, longitude: x.lon }));
         const rs = await fetchRoutes(from, to, { avoidTolls: n.tolls, avoidHighways: n.highways, stops: stopLL });
-        // Keep avoiding plate readers: take the new option that passes the fewest.
-        const all = await camerasAlongRoutesDetailed(rs).catch(() => rs.map(() => []));
+        // Keep avoiding plate readers: take the new option that passes the fewest, and if that's
+        // not 0, do the full search for a route with none (any extra time), same as the route screen.
+        let lookupFailed = false;
+        const all = await camerasAlongRoutesDetailed(rs).catch(() => {
+          lookupFailed = true;
+          return rs.map(() => []);
+        });
         const cams = all.map((x) => x.filter((c) => !c.speed));
         let j = 0;
         cams.forEach((c, i) => c.length < cams[j].length && (j = i));
         let best = rs[j];
-        if (n.fewest && cams[j].length > 0) {
+        let passes = cams[j].length;
+        if (passes > 0) {
           const f = await findFewerCamerasRoute(from, to, rs, cams, {
             avoidTolls: n.tolls,
             avoidHighways: n.highways,
             stops: stopLL,
+            maxExtraSec: Infinity,
+            tries: 7,
           }).catch(() => null);
-          if (f && f.cameras < cams[j].length) best = f.route;
+          if (f && f.cameras < passes) {
+            best = f.route;
+            passes = f.cameras;
+          }
         }
-        if (!navStateRef.current) return;
+        const cur = navStateRef.current;
+        if (!cur) return;
+        // Couldn't get to 0? Say so, so it's never a surprise.
+        // (Only when the count changes, so repeated reroutes don't keep repeating it.)
+        if (!lookupFailed && passes === 0) lastPassesSaidRef.current = 0;
+        if (!lookupFailed && passes > 0 && passes !== lastPassesSaidRef.current) {
+          lastPassesSaidRef.current = passes;
+          const msg = `No route without plate readers. This one passes ${passes === 1 ? "1 plate reader" : `${passes} plate readers`}.`;
+          showToast(msg);
+          if (proRef.current) say(msg);
+        }
+        // Remember where Mapbox put each stop on the road, to tell when you've reached it.
+        if (cur.stops.length && best.stopPoints.length === cur.stops.length) {
+          const snapped = {
+            ...cur,
+            stops: cur.stops.map((x, k) => ({ ...x, lat: best.stopPoints[k].latitude, lon: best.stopPoints[k].longitude })),
+          };
+          navStateRef.current = snapped;
+          setNav(snapped);
+        }
         engineRef.current = new NavEngine(best);
         setNavRoute(best);
         loadRouteHazards(best);
@@ -850,6 +893,7 @@ function MapScreen() {
   navFixRef.current = (fix) => {
     const engine = engineRef.current;
     if (!engine) return;
+    lastNavFixRef.current = { lat: fix.lat, lon: fix.lon };
     if (fix.heading != null && (fix.mph ?? 0) > 3) headingRef.current = fix.heading;
     const u = engine.update(fix);
     setNavUpdate(u);
@@ -903,6 +947,7 @@ function MapScreen() {
         : [],
     });
     speedingRef.current = { count: 0, lastSaid: 0 };
+    lastPassesSaidRef.current = 0;
     setNavUpdate(null);
     setFollow(true);
     setSelected(null);
@@ -914,6 +959,42 @@ function MapScreen() {
       mapRef.current?.animateCamera(driveCamera(userLoc.lat, userLoc.lon, headingRef.current), { duration: 700 });
     }
   }, [routes, routeCounts, selectedRoute, searchPin, avoidTolls, avoidHighways, stops, loadRouteHazards, userLoc]);
+
+  // While heading to a stop, split the route line at that stop (drawn in two colors).
+  const nextStop = nav?.stops[0] ?? null;
+  const navSplit = useMemo(() => {
+    if (!navRoute || !nextStop) return null;
+    const c = navRoute.coords;
+    const k = Math.cos((nextStop.lat * Math.PI) / 180);
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < c.length; i++) {
+      const d = ((c[i].latitude - nextStop.lat) ** 2) + ((c[i].longitude - nextStop.lon) * k) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best === 0 || best >= c.length - 1) return null;
+    return { toStop: c.slice(0, best + 1), after: c.slice(best), key: `${nextStop.lat.toFixed(5)},${nextStop.lon.toFixed(5)}` };
+  }, [navRoute, nextStop]);
+
+  // Zoom out to see the whole trip (flat, north up). Re-center goes back to following you.
+  const showWholeTrip = () => {
+    const r = engineRef.current?.route ?? navRoute;
+    if (!r) return;
+    setFollow(false);
+    const here = lastNavFixRef.current;
+    const pts = here ? [{ latitude: here.lat, longitude: here.lon }, ...r.coords] : r.coords;
+    mapRef.current?.animateCamera({ heading: 0, pitch: 0 }, { duration: 1 });
+    setTimeout(
+      () =>
+        mapRef.current?.fitToCoordinates(pts, {
+          edgePadding: { top: insets.top + 190, bottom: navFooterH + 90, left: 50, right: 50 },
+          animated: true,
+        }),
+      60
+    );
+  };
 
   const endNav = useCallback(() => {
     engineRef.current = null;
@@ -1018,20 +1099,6 @@ function MapScreen() {
     }
   };
 
-  // ---- Pro: commute watch (Home → Work), checked about twice a day ----------------------
-  const [commute, setCommute] = useState<CommuteStatus | null>(null);
-  const commuteKey = places.home && places.work ? `${places.home.id}>${places.work.id}` : null;
-  useEffect(() => {
-    if (!isPro || !places.home || !places.work) return;
-    let live = true;
-    checkCommute(places.home, places.work)
-      .then((c) => live && setCommute(c))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro, commuteKey]);
   const [reportOpen, setReportOpen] = useState(false);
 
   // Report button: live alerts go in with one tap at your spot; cameras use the pin flow.
@@ -1237,13 +1304,25 @@ function MapScreen() {
               />,
               <Polyline
                 key={`nav-line-${navRoute.id}-${navRoute.distanceM}`}
-                coordinates={navRoute.coords}
+                coordinates={navSplit ? navSplit.after : navRoute.coords}
                 strokeColor={theme.route}
                 strokeWidth={8}
                 lineCap="round"
                 lineJoin="round"
                 zIndex={21}
               />,
+              // Heading to a stop: that stretch is teal; after the stop the line is the usual blue.
+              navSplit ? (
+                <Polyline
+                  key={`nav-stop-${navRoute.id}-${navRoute.distanceM}-${navSplit.key}`}
+                  coordinates={navSplit.toStop}
+                  strokeColor={theme.routeToStop}
+                  strokeWidth={8}
+                  lineCap="round"
+                  lineJoin="round"
+                  zIndex={22}
+                />
+              ) : null,
             ]
           : routes
           ? // Unselected routes first (grey), the selected one on top (accent), each with a casing.
@@ -1325,7 +1404,7 @@ function MapScreen() {
             zIndex={890}
             accessibilityLabel={`Stop ${i + 1}: ${st.name}`}
           >
-            <View style={[styles.stopPin, { backgroundColor: theme.accent, borderColor: theme.destinationInner }]}>
+            <View style={[styles.stopPin, { backgroundColor: theme.routeToStop, borderColor: theme.destinationInner }]}>
               <Txt weight="bold" style={{ fontSize: 12, color: theme.onAccent }}>
                 {i + 1}
               </Txt>
@@ -1394,7 +1473,15 @@ function MapScreen() {
         </Pressable>
       </View>
 
-      {navActive ? <NavBanner theme={theme} update={navUpdate} rerouting={rerouting} showLanes={isPro} /> : null}
+      {navActive && settingSlot !== "stop" ? (
+        <NavBanner
+          theme={theme}
+          update={navUpdate}
+          rerouting={rerouting}
+          showLanes={isPro}
+          onPress={() => setPanelSignal((n) => n + 1)}
+        />
+      ) : null}
       {navActive && stillHere ? (
         <StillHerePrompt
           theme={theme}
@@ -1413,13 +1500,25 @@ function MapScreen() {
           </View>
         </View>
       ) : null}
+      {navActive && follow && settingSlot !== "stop" ? (
+        <OverviewButton theme={theme} bottom={navFooterH + 16 + 58} onPress={showWholeTrip} />
+      ) : null}
       {navActive && !follow ? (
-        <RecenterPill theme={theme} bottom={navFooterH + 16} onPress={() => setFollow(true)} />
+        <RecenterPill
+          theme={theme}
+          bottom={navFooterH + 16}
+          onPress={() => {
+            setFollow(true);
+            // Jump straight back to the tilted driving view (don't wait for the next GPS fix).
+            const at = lastNavFixRef.current ?? userLoc;
+            if (at) mapRef.current?.animateCamera(driveCamera(at.lat, at.lon, headingRef.current), { duration: 700 });
+          }}
+        />
       ) : null}
 
       {/* Search, or the from/to card while previewing routes */}
       <View
-        style={[styles.top, { top: insets.top + 8, display: navActive ? "none" : "flex" }]}
+        style={[styles.top, { top: insets.top + 8, display: navActive && settingSlot !== "stop" ? "none" : "flex" }]}
         pointerEvents="box-none"
       >
         {reporting ? (
@@ -1743,6 +1842,14 @@ function MapScreen() {
           }}
           onEnd={endNav}
           onLayoutHeight={setNavFooterH}
+          openSignal={panelSignal}
+          onAddStop={() => {
+            if (!isPro) return openPaywall("Adding stops on the way is part of DeCam GPS Pro.");
+            setSettingSlot("stop");
+            setSearchFocus((n) => n + 1);
+          }}
+          addStopLocked={!isPro}
+          stopsLeft={MAX_STOPS - (nav?.stops.length ?? 0)}
           onShare={() => {
             const n = navStateRef.current;
             if (!n) return;
@@ -1799,22 +1906,6 @@ function MapScreen() {
               return;
             }
             startNav();
-          }}
-          avoidAll={{
-            on: avoidAll,
-            extraMin,
-            locked: false, // free for everyone
-            onToggle: () => {
-              const next = !avoidAll;
-              setAvoidAll(next);
-              avoidAllRef.current = { on: next, extraMin };
-              if (searchPin) loadRoutes(searchPin);
-            },
-            onExtra: (m) => {
-              setExtraMin(m);
-              avoidAllRef.current = { on: avoidAll, extraMin: m };
-              if (searchPin) loadRoutes(searchPin);
-            },
           }}
         />
       ) : searchPin && !selected ? (
@@ -1878,18 +1969,6 @@ function MapScreen() {
               ),
             onRemove: (f) => setPlaces((p) => removeFavorite(p, f.id)),
           }}
-          commute={
-            places.home && places.work
-              ? {
-                  locked: !isPro,
-                  status: commute,
-                  onPress: () =>
-                    isPro
-                      ? places.work && goSaved(places.work)
-                      : openPaywall("Commute watch is part of DeCam GPS Pro."),
-                }
-              : null
-          }
         />
       ) : null}
 

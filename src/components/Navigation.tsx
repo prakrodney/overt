@@ -5,7 +5,7 @@ import Svg, { Circle, Path } from "react-native-svg";
 import type { RouteOption } from "../lib/directions";
 import { arrivalTime, formatNavDistance, type NavUpdate } from "../lib/navEngine";
 import type { Theme } from "../theme";
-import { LocateIcon } from "./Icons";
+import { LocateIcon, PlusIcon } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -60,7 +60,10 @@ export function ManeuverIcon({ type, modifier, size = 44, color }: { type?: stri
     );
   }
   return (
-    <View style={{ transform: left && m !== "uturn" ? [{ scaleX: -1 }] : undefined }}>
+    // Always pass a transform list: switching between a list and "none" crashes the new
+    // React Native renderer ("Cannot read property 'forEach' of null") when a left turn
+    // changes to a right turn, e.g. after adding a stop.
+    <View style={{ transform: [{ scaleX: left && m !== "uturn" ? -1 : 1 }] }}>
       <Svg width={size} height={size} viewBox="0 0 24 24">
         {body}
       </Svg>
@@ -74,17 +77,25 @@ export function NavBanner({
   update,
   rerouting,
   showLanes = false,
+  onPress,
 }: {
   theme: T;
   update: NavUpdate | null;
   rerouting: boolean;
+  /** Tap the banner to see every direction. */
+  onPress?: () => void;
   /** Pro: lane arrows before a turn. */
   showLanes?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const b = update?.banner;
   return (
-    <View style={[styles.banner, { top: insets.top + 8, backgroundColor: theme.accent }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityHint="Shows all directions"
+      style={({ pressed }) => [styles.banner, { top: insets.top + 8, backgroundColor: theme.accent, opacity: pressed ? 0.92 : 1 }]}
+    >
       {rerouting ? (
         <Txt weight="bold" style={{ color: theme.onAccent, fontSize: 22, paddingVertical: 10 }}>
           Rerouting…
@@ -132,7 +143,7 @@ export function NavBanner({
           ) : null}
         </>
       )}
-    </View>
+    </Pressable>
   );
 }
 
@@ -177,6 +188,10 @@ export function NavPanel({
   onEnd,
   onLayoutHeight,
   onShare,
+  openSignal = 0,
+  onAddStop,
+  addStopLocked = false,
+  stopsLeft = 0,
 }: {
   theme: T;
   update: NavUpdate | null;
@@ -184,6 +199,13 @@ export function NavPanel({
   muted: boolean;
   /** Share your arrival time with someone. */
   onShare?: () => void;
+  /** Bump this number to open the panel (e.g. when the top banner is tapped). */
+  openSignal?: number;
+  /** Add a stop on the way (Pro). */
+  onAddStop?: () => void;
+  addStopLocked?: boolean;
+  /** How many more stops can be added. */
+  stopsLeft?: number;
   /** Voice is a Pro feature: show a "PRO" tag and open the upgrade screen on tap. */
   locked?: boolean;
   onToggleMute: () => void;
@@ -209,6 +231,11 @@ export function NavPanel({
     setOpen(toOpen);
     Animated.spring(y, { toValue: toOpen ? 0 : closedY, useNativeDriver: true, bounciness: 3, speed: 16 }).start();
   };
+  // Opened from outside (tapping the top banner).
+  useEffect(() => {
+    if (openSignal) snapRef.current(true);
+  }, [openSignal]);
+
   // Keep the collapsed position right when sizes change.
   useEffect(() => {
     if (barH) y.setValue(open ? 0 : closedY);
@@ -316,10 +343,62 @@ export function NavPanel({
           </Pressable>
         </View>
       </View>
+      {onAddStop ? (
+        <Pressable
+          onPress={() => {
+            snap(false);
+            onAddStop();
+          }}
+          disabled={!addStopLocked && stopsLeft <= 0}
+          accessibilityRole="button"
+          accessibilityLabel={addStopLocked ? "Add a stop (Pro)" : "Add a stop"}
+          style={({ pressed }) => [
+            styles.addStop,
+            { backgroundColor: theme.subtle, opacity: !addStopLocked && stopsLeft <= 0 ? 0.5 : pressed ? 0.7 : 1 },
+          ]}
+        >
+          <PlusIcon size={18} color={theme.accentIcon} />
+          <Txt weight="semibold" style={{ flex: 1, fontSize: 16, color: theme.text }}>
+            {!addStopLocked && stopsLeft <= 0 ? "Stop limit reached (3)" : "Add a stop"}
+          </Txt>
+          {addStopLocked ? (
+            <View style={[styles.proTagInline, { backgroundColor: theme.accent }]}>
+              <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
+                PRO
+              </Txt>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
       <View style={{ flex: 1, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.divider }}>
         <StepsList theme={theme} route={route} update={update} bottomPad={insets.bottom + 16} />
       </View>
     </Animated.View>
+  );
+}
+
+/** See the whole trip at once (bottom right while navigating). */
+export function OverviewButton({ theme, bottom, onPress }: { theme: T; bottom: number; onPress: () => void }) {
+  const c = { stroke: theme.accentIcon, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" };
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="See the whole trip"
+      style={({ pressed }) => [
+        styles.overview,
+        { bottom, backgroundColor: theme.control, opacity: pressed ? 0.8 : 1, shadowColor: theme.shadowColor },
+      ]}
+    >
+      <Svg width={20} height={20} viewBox="0 0 24 24">
+        <Path d="M4 19c3-1 3-6 7-7s5-5 9-7" {...c} />
+        <Circle cx={4} cy={19} r={2} fill={theme.accentIcon} />
+        <Path d="M20 2.5v5M17.5 5h5" {...c} />
+      </Svg>
+      <Txt weight="semibold" style={{ fontSize: 15, color: theme.text }}>
+        Overview
+      </Txt>
+    </Pressable>
   );
 }
 
@@ -372,8 +451,23 @@ const styles = StyleSheet.create({
   handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center", marginTop: 8, marginBottom: 8 },
   barRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18 },
   proTag: { position: "absolute", top: -4, right: -6, paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6 },
+  addStop: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 18, marginBottom: 12, paddingHorizontal: 14, height: 48, borderRadius: 14 },
+  proTagInline: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   round: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   end: { height: 48, paddingHorizontal: 18, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  overview: {
+    position: "absolute",
+    right: 16,
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+  },
   recenter: {
     position: "absolute",
     alignSelf: "center",
