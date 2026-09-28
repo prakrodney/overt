@@ -9,8 +9,18 @@ import type { LatLng, RouteOption } from "./directions";
 /** A camera counts as "on the route" within this many metres of the line. */
 export const ON_ROUTE_METERS = 30;
 
-/** `speed` = speed camera (counted separately from ALPRs). */
-export type Cam = { id: number; lat: number; lon: number; dir: number | null; speed: boolean };
+/**
+ * `speed` = a traffic-enforcement camera (speed or red-light), counted separately from
+ * plate readers; `kind` says which.
+ */
+export type Cam = {
+  id: number;
+  lat: number;
+  lon: number;
+  dir: number | null;
+  speed: boolean;
+  kind: "alpr" | "speed" | "red_light";
+};
 
 const BOX_DEG = 0.18; // ~20 km
 
@@ -38,7 +48,14 @@ async function fetchCorridorCameras(routes: RouteOption[], signal?: AbortSignal)
   });
   if (!res.ok) throw new Error(`Camera lookup failed (${res.status})`);
   const rows = (await res.json()) as [number, number, number, number | null, number?][];
-  return rows.map(([id, lat, lon, dir, speed]) => ({ id, lat, lon, dir, speed: speed === 1 }));
+  return rows.map(([id, lat, lon, dir, k]) => ({
+    id,
+    lat,
+    lon,
+    dir,
+    speed: k === 1 || k === 2,
+    kind: k === 1 ? "speed" : k === 2 ? "red_light" : "alpr",
+  }));
 }
 
 /** Compass bearing (0 = north) of travel from A to B. */

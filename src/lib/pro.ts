@@ -12,8 +12,16 @@ export const PRO_PRICE = "$9.99/month";
 export const TRIAL_DAYS = 3;
 const TRIAL_KEY = "overt.trialStartedAt.v1";
 
-type State = { trialStartedAt: number | null; isAdmin: boolean; purchased: boolean; loaded: boolean; previewFree: boolean };
-let state: State = { trialStartedAt: null, isAdmin: false, purchased: false, loaded: false, previewFree: false };
+type State = {
+  trialStartedAt: number | null;
+  isAdmin: boolean;
+  purchased: boolean;
+  loaded: boolean;
+  previewFree: boolean;
+  /** Free Pro time earned from invites (checked on the server). */
+  giftUntil: number;
+};
+let state: State = { trialStartedAt: null, isAdmin: false, purchased: false, loaded: false, previewFree: false, giftUntil: 0 };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
@@ -37,6 +45,11 @@ export function setPreviewFree(on: boolean) {
 }
 export const isPreviewingFree = () => state.previewFree;
 
+/** Free Pro weeks from inviting friends (or using a friend's code). */
+export function setGiftUntil(ms: number) {
+  if (ms !== state.giftUntil) set({ giftUntil: ms });
+}
+
 export function startTrial() {
   if (state.trialStartedAt) return;
   const now = Date.now();
@@ -46,8 +59,8 @@ export function startTrial() {
 
 export type ProStatus = {
   isPro: boolean;
-  /** "free" | "trial" | "trial_ended" | "pro" | "admin" */
-  kind: "free" | "trial" | "trial_ended" | "pro" | "admin";
+  /** "free" | "trial" | "trial_ended" | "pro" | "admin" | "gift" (invite weeks) */
+  kind: "free" | "trial" | "trial_ended" | "pro" | "admin" | "gift";
   trialMsLeft: number;
   loaded: boolean;
 };
@@ -58,6 +71,8 @@ function compute(): ProStatus {
   if (state.purchased) return { isPro: true, kind: "pro", trialMsLeft: 0, loaded: state.loaded };
   if (state.isAdmin && !state.previewFree) return { isPro: true, kind: "admin", trialMsLeft: 0, loaded: state.loaded };
   if (state.isAdmin && state.previewFree) return { isPro: false, kind: "free", trialMsLeft: 0, loaded: state.loaded };
+  const gift = Math.max(0, state.giftUntil - Date.now());
+  if (gift > 0 && gift >= left) return { isPro: true, kind: "gift", trialMsLeft: gift, loaded: state.loaded };
   if (state.trialStartedAt && left > 0) return { isPro: true, kind: "trial", trialMsLeft: left, loaded: state.loaded };
   if (state.trialStartedAt) return { isPro: false, kind: "trial_ended", trialMsLeft: 0, loaded: state.loaded };
   return { isPro: false, kind: "free", trialMsLeft: 0, loaded: state.loaded };

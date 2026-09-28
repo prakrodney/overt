@@ -3,8 +3,9 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PRO_PRICE, startTrial, trialLeftText, TRIAL_DAYS, usePro } from "../lib/pro";
 import type { Theme } from "../theme";
-import { CheckIcon, CloseIcon, PoliceIcon, SpeedGlyph } from "./Icons";
-import { SpeakerIcon } from "./Navigation";
+import { CameraGlyph, CheckIcon, ClockIcon, CloseIcon, HomeIcon, PinIcon, PoliceIcon, SpeedGlyph } from "./Icons";
+import { ManeuverIcon, SpeakerIcon } from "./Navigation";
+import { DensityIcon } from "./Community";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -66,11 +67,18 @@ export function Paywall({
               Know what's ahead
             </Txt>
             <Txt style={{ fontSize: 16, lineHeight: 22, color: theme.textSecondary }}>
-              {reason ?? "The plate-reader map, safer routes, detours and crash alerts stay free. Pro adds police alerts, speed cameras and voice."}
+              {reason ?? "The plate-reader map, safer routes, detours and crash alerts stay free. Pro turns DeCam GPS into a full co-pilot."}
             </Txt>
           </View>
 
           <View style={{ gap: 16 }}>
+            <Feature
+              theme={theme}
+              bg={theme.markerFill}
+              icon={<CameraGlyph size={22} color={theme.markerGlyph} />}
+              title="Drive mode alerts"
+              body="Just drive. Get warned about plate readers, cameras and police ahead, no route needed."
+            />
             <Feature
               theme={theme}
               bg={theme.policeFill}
@@ -82,8 +90,8 @@ export function Paywall({
               theme={theme}
               bg={theme.speedFill}
               icon={<SpeedGlyph size={22} color={theme.speedGlyph} />}
-              title="Speed cameras"
-              body="Speed cameras on the map, on your routes, with their speed limits."
+              title="Speed & red-light cameras"
+              body="On the map and on your routes, with speed limits where known."
             />
             <Feature
               theme={theme}
@@ -92,12 +100,68 @@ export function Paywall({
               title="Voice guidance"
               body="Spoken turn-by-turn directions and warnings about cameras and police ahead."
             />
+            <Feature
+              theme={theme}
+              bg={theme.crashFill}
+              icon={<Txt weight="extrabold" style={{ fontSize: 17, color: "#FFFFFF" }}>55</Txt>}
+              title="Speeding warning"
+              body="A spoken heads-up when you go 5+ mph over the limit."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.accent}
+              icon={<ManeuverIcon modifier="slight right" size={26} color={theme.onAccent} />}
+              title="Lane guidance"
+              body="Arrows that show which lane to be in before each turn."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.goodText}
+              icon={<ClockIcon size={20} color={theme.surface} />}
+              title="Leave later"
+              body="Plan a trip for later today or tomorrow with the traffic expected then."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.markerFill}
+              icon={<PinIcon size={20} color={theme.markerGlyph} />}
+              title="Multiple stops & saved places"
+              body="Add up to 3 stops on the way, and save places like Gym or Mom's house."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.badBg}
+              icon={<DensityIcon size={22} color={theme.badText} />}
+              title="Camera density map"
+              body="See which neighborhoods have the most plate readers."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.redLightFill}
+              icon={<HomeIcon size={20} color={theme.redLightGlyph} />}
+              title="Commute watch"
+              body="Know when a new plate reader shows up between Home and Work."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.speedFill}
+              icon={<ClockIcon size={20} color={theme.speedGlyph} />}
+              title="Your privacy report"
+              body="Weekly plate readers passed and avoided. Stays on your phone."
+            />
+            <Feature
+              theme={theme}
+              bg={theme.subtle}
+              icon={<PinIcon size={20} color={theme.accentIcon} />}
+              title="Map styles"
+              body="Detailed, satellite and hybrid maps."
+            />
           </View>
 
           <View style={[styles.freeBox, { backgroundColor: theme.subtle }]}>
             <CheckIcon color={theme.goodText} />
             <Txt style={{ flex: 1, fontSize: 14, color: theme.textSecondary }}>
-              Always free: crash and road-object alerts, reporting police, the plate-reader map, routes with camera counts, detours, on-screen directions, search and saved places.
+              Always free: crash and road-object alerts, reporting police, the plate-reader map, routes with camera counts, detours, avoiding all plate readers, avoid tolls and highways, the speed limit sign, sharing your ETA, on-screen directions, search, Home and Work.
             </Txt>
           </View>
         </ScrollView>
@@ -106,6 +170,10 @@ export function Paywall({
           {pro.kind === "trial" ? (
             <Txt weight="semibold" style={{ textAlign: "center", fontSize: 15, color: theme.text }}>
               Your free trial is on · {trialLeftText(pro.trialMsLeft)}
+            </Txt>
+          ) : pro.kind === "gift" ? (
+            <Txt weight="semibold" style={{ textAlign: "center", fontSize: 15, color: theme.text }}>
+              Free Pro from an invite · {trialLeftText(pro.trialMsLeft)}
             </Txt>
           ) : pro.kind === "admin" || pro.kind === "pro" ? (
             <Txt weight="semibold" style={{ textAlign: "center", fontSize: 15, color: theme.text }}>

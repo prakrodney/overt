@@ -1,9 +1,10 @@
+import type React from "react";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatDuration, formatMiles, type RouteOption } from "../lib/directions";
 import type { Theme } from "../theme";
-import { BackIcon, CameraFilledIcon, CheckIcon, DirectionsIcon, TollIcon, WarnIcon } from "./Icons";
+import { BackIcon, CameraFilledIcon, CheckIcon, ClockIcon, CloseIcon, DirectionsIcon, PlusIcon, TollIcon, WarnIcon } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -54,6 +55,7 @@ export function RouteSheet({
   routes,
   counts,
   speedCounts = null,
+  redCounts = null,
   countError,
   selected,
   onSelect,
@@ -63,12 +65,19 @@ export function RouteSheet({
   error,
   searchingFewer = false,
   onStart,
+  avoidAll,
+  avoidHighways = false,
+  onToggleHighways,
+  leave,
+  stops,
 }: {
   theme: T;
   routes: RouteOption[];
   counts: number[] | null;
   /** Speed cameras on each route (shown, but not part of the rating). */
   speedCounts?: number[] | null;
+  /** Red-light cameras on each route. */
+  redCounts?: number[] | null;
   countError: string | null;
   selected: number;
   onSelect: (i: number) => void;
@@ -80,6 +89,20 @@ export function RouteSheet({
   searchingFewer?: boolean;
   /** Start turn-by-turn on the selected route. */
   onStart?: () => void;
+  /** Pro "avoid all plate readers" mode and how much extra time is OK. */
+  avoidAll?: {
+    on: boolean;
+    extraMin: number | null; // null = any amount
+    locked: boolean;
+    onToggle: () => void;
+    onExtra: (m: number | null) => void;
+  };
+  avoidHighways?: boolean;
+  onToggleHighways?: () => void;
+  /** Pro "leave later": planned departure time (ms) or null for now. */
+  leave?: { departAt: number | null; locked: boolean; onPress: () => void };
+  /** Pro multiple stops. */
+  stops?: { list: { id: string; name: string }[]; locked: boolean; max: number; onAdd: () => void; onRemove: (id: string) => void };
 }) {
   const insets = useSafeAreaInsets();
   const [startNote, setStartNote] = useState(false);
@@ -102,23 +125,122 @@ export function RouteSheet({
         <Txt weight="bold" style={[styles.title, { color: theme.text }]}>
           {loading ? "Finding routes…" : routes.length === 1 ? "1 route" : `${routes.length} routes`}
         </Txt>
-        <Pressable
-          onPress={onToggleTolls}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: avoidTolls }}
-          style={[
-            styles.chip,
-            avoidTolls
-              ? { backgroundColor: theme.badgeBg, borderColor: theme.accentIcon }
-              : { backgroundColor: theme.surface, borderColor: theme.outline },
-          ]}
-        >
-          <TollIcon color={avoidTolls ? theme.badgeText : theme.text} />
-          <Txt weight="semibold" style={{ fontSize: 14, color: avoidTolls ? theme.badgeText : theme.text }}>
-            Avoid tolls
-          </Txt>
-        </Pressable>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}>
+        <Chip theme={theme} on={avoidTolls} onPress={onToggleTolls} icon={(c) => <TollIcon color={c} />} label="Avoid tolls" />
+        {onToggleHighways ? (
+          <Chip theme={theme} on={avoidHighways} onPress={onToggleHighways} label="Avoid highways" />
+        ) : null}
+        {leave ? (
+          <Chip
+            theme={theme}
+            on={leave.departAt != null && !leave.locked}
+            onPress={leave.onPress}
+            icon={(c) => <ClockIcon size={16} color={c} />}
+            label={leave.departAt && !leave.locked ? `Leave ${timeLabel(leave.departAt)}` : "Leave later"}
+            pro={leave.locked}
+            role="button"
+          />
+        ) : null}
+        {stops && stops.list.length < stops.max ? (
+          <Chip
+            theme={theme}
+            on={false}
+            onPress={stops.onAdd}
+            icon={(c) => <PlusIcon size={16} color={c} />}
+            label="Add stop"
+            pro={stops.locked}
+            role="button"
+          />
+        ) : null}
+      </ScrollView>
+
+      {stops && stops.list.length ? (
+        <View style={{ gap: 6 }}>
+          {stops.list.map((st, i) => (
+            <View key={st.id} style={[styles.stopRow, { backgroundColor: theme.subtle }]}>
+              <View style={[styles.stopNum, { backgroundColor: theme.accent }]}>
+                <Txt weight="bold" style={{ fontSize: 12, color: theme.onAccent }}>
+                  {i + 1}
+                </Txt>
+              </View>
+              <Txt weight="semibold" numberOfLines={1} style={{ flex: 1, fontSize: 14, color: theme.text }}>
+                Stop: {st.name}
+              </Txt>
+              <Pressable
+                onPress={() => stops.onRemove(st.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove stop ${st.name}`}
+                hitSlop={8}
+                style={[styles.stopX, { backgroundColor: theme.closeBg }]}
+              >
+                <CloseIcon size={11} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {avoidAll ? (
+        <View style={{ gap: 8 }}>
+          <Pressable
+            onPress={avoidAll.onToggle}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: avoidAll.on && !avoidAll.locked }}
+            style={({ pressed }) => [
+              styles.avoidRow,
+              {
+                backgroundColor: avoidAll.on && !avoidAll.locked ? theme.badgeBg : theme.subtle,
+                borderColor: avoidAll.on && !avoidAll.locked ? theme.accentIcon : "transparent",
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <CameraFilledIcon color={avoidAll.on && !avoidAll.locked ? theme.badgeText : theme.text} />
+            <Txt weight="semibold" style={{ flex: 1, fontSize: 15, color: avoidAll.on && !avoidAll.locked ? theme.badgeText : theme.text }}>
+              Avoid all plate readers
+            </Txt>
+            {avoidAll.locked ? (
+              <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
+                <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
+                  PRO
+                </Txt>
+              </View>
+            ) : (
+              <Txt weight="bold" style={{ fontSize: 13, color: avoidAll.on ? theme.badgeText : theme.textSecondary }}>
+                {avoidAll.on ? "ON" : "OFF"}
+              </Txt>
+            )}
+          </Pressable>
+          {avoidAll.on && !avoidAll.locked ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Txt style={{ fontSize: 13, color: theme.textSecondary }}>Extra time OK:</Txt>
+              {([5, 10, 20, null] as const).map((m) => {
+                const on = avoidAll.extraMin === m;
+                return (
+                  <Pressable
+                    key={String(m)}
+                    onPress={() => avoidAll.onExtra(m)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    style={[
+                      styles.miniChip,
+                      on
+                        ? { backgroundColor: theme.accent, borderColor: theme.accent }
+                        : { backgroundColor: theme.surface, borderColor: theme.outline },
+                    ]}
+                  >
+                    <Txt weight="semibold" style={{ fontSize: 13, color: on ? theme.onAccent : theme.text }}>
+                      {m == null ? "Any" : `+${m} min`}
+                    </Txt>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {error ? <Txt style={{ color: theme.badText, fontSize: 14 }}>{error}</Txt> : null}
       {searchingFewer ? (
@@ -141,10 +263,12 @@ export function RouteSheet({
             const isSel = i === selected;
             const meta = [
               r.id === "fewest" ? "Detour" : null,
+              leave?.departAt && !leave.locked ? `Arrive ${timeLabel(leave.departAt + r.durationSec * 1000, true)}` : null,
               formatMiles(r.distanceM),
               r.hasToll ? "Toll road" : null,
               cameraText(counts?.[i]),
               speedCounts?.[i] ? (speedCounts[i] === 1 ? "1 speed camera" : `${speedCounts[i]} speed cameras`) : null,
+              redCounts?.[i] ? (redCounts[i] === 1 ? "1 red-light camera" : `${redCounts[i]} red-light cameras`) : null,
             ]
               .filter(Boolean)
               .join(" · ");
@@ -193,10 +317,66 @@ export function RouteSheet({
       >
         <DirectionsIcon color={theme.onAccent} />
         <Txt weight="bold" style={{ color: theme.onAccent, fontSize: 17 }}>
-          Start
+          {leave?.departAt && !leave.locked ? "Leave now instead" : "Start"}
         </Txt>
       </Pressable>
     </View>
+  );
+}
+
+/** "5:30 PM", "Tomorrow 8:00 AM" */
+export function timeLabel(ms: number, short = false) {
+  const d = new Date(ms);
+  const t = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return t;
+  if (d.toDateString() === tomorrow.toDateString()) return short ? `${t} tmrw` : `Tomorrow ${t}`;
+  return `${d.toLocaleDateString("en-US", { weekday: "short" })} ${t}`;
+}
+
+function Chip({
+  theme,
+  on,
+  onPress,
+  label,
+  icon,
+  pro = false,
+  role = "switch",
+}: {
+  theme: T;
+  on: boolean;
+  onPress: () => void;
+  label: string;
+  icon?: (color: string) => React.ReactNode;
+  pro?: boolean;
+  role?: "switch" | "button";
+}) {
+  const fg = on ? theme.badgeText : theme.text;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole={role}
+      accessibilityState={role === "switch" ? { checked: on } : undefined}
+      accessibilityLabel={pro ? `${label} (Pro)` : label}
+      style={({ pressed }) => [
+        styles.chip,
+        on ? { backgroundColor: theme.badgeBg, borderColor: theme.accentIcon } : { backgroundColor: theme.surface, borderColor: theme.outline },
+        { opacity: pressed ? 0.8 : 1 },
+      ]}
+    >
+      {icon ? icon(fg) : null}
+      <Txt weight="semibold" style={{ fontSize: 14, color: fg }}>
+        {label}
+      </Txt>
+      {pro ? (
+        <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
+          <Txt weight="bold" style={{ fontSize: 9, color: theme.onAccent }}>
+            PRO
+          </Txt>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -249,6 +429,9 @@ const styles = StyleSheet.create({
   },
   handle: { width: 40, height: 5, borderRadius: 3, alignSelf: "center" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  avoidRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, height: 44, borderRadius: 14, borderWidth: 1.5 },
+  proTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  miniChip: { height: 30, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, fontSize: 20, letterSpacing: -0.2 },
   chip: {
     height: 36,
@@ -290,4 +473,7 @@ const styles = StyleSheet.create({
   back: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   endpoint: { flexDirection: "row", alignItems: "center", gap: 10 },
   dot: { width: 8, height: 8 },
+  stopRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, height: 38, borderRadius: 12 },
+  stopNum: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  stopX: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
 });

@@ -2,6 +2,7 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "r
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useState } from "react";
 import { isPreviewingFree, PRO_PRICE, setPreviewFree, trialLeftText, type ProStatus } from "../lib/pro";
+import { setPref, usePrefs, type MapStyle } from "../lib/prefs";
 import { setAppearance, useAppearance, type Appearance, type Theme } from "../theme";
 import { CloseIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -26,6 +27,9 @@ export function SettingsSheet({
   pro,
   onOpenPro,
   isAdmin = false,
+  onOpenPrivacyReport,
+  onOpenInvite,
+  onOpenBadges,
 }: {
   visible: boolean;
   theme: T;
@@ -38,10 +42,15 @@ export function SettingsSheet({
   pro: ProStatus;
   onOpenPro: () => void;
   isAdmin?: boolean;
+  onOpenPrivacyReport: () => void;
+  onOpenInvite: () => void;
+  onOpenBadges: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const appearance = useAppearance();
   const [preview, setPreview] = useState(isPreviewingFree());
+  const prefs = usePrefs();
+  const proOnly = (fn: () => void) => () => (pro.isPro ? fn() : onOpenPro());
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: theme.mapFallback }}>
@@ -71,14 +80,18 @@ export function SettingsSheet({
             >
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt weight="bold" style={{ fontSize: 17, color: theme.text }}>
-                  {pro.kind === "trial"
+                  {pro.kind === "gift"
+                    ? "Pro from an invite"
+                    : pro.kind === "trial"
                     ? "Pro free trial"
                     : pro.kind === "pro" || pro.kind === "admin"
                       ? "DeCam GPS Pro"
                       : "Free"}
                 </Txt>
                 <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
-                  {pro.kind === "trial"
+                  {pro.kind === "gift"
+                    ? `${trialLeftText(pro.trialMsLeft)} · thanks for sharing DeCam GPS`
+                    : pro.kind === "trial"
                     ? `${trialLeftText(pro.trialMsLeft)} · then ${PRO_PRICE}`
                     : pro.kind === "admin"
                       ? "Included with your admin account"
@@ -148,6 +161,62 @@ export function SettingsSheet({
 
           <View style={{ gap: 8 }}>
             <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
+              COMMUNITY
+            </Txt>
+            <Pressable
+              onPress={onOpenInvite}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.card, styles.row, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Invite a friend
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  You both get a free week of Pro. Have a code? Enter it here too.
+                </Txt>
+              </View>
+              <Txt weight="bold" style={{ fontSize: 18, color: theme.textSecondary }}>
+                ›
+              </Txt>
+            </Pressable>
+            <Pressable
+              onPress={onOpenBadges}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.card, styles.row, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Your badges
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  Earned by adding cameras and keeping the map accurate.
+                </Txt>
+              </View>
+              <Txt weight="bold" style={{ fontSize: 18, color: theme.textSecondary }}>
+                ›
+              </Txt>
+            </Pressable>
+            <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Ask "Still here?" about cameras
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  After you drive past a camera, one tap says if it's still there. Best answered by a passenger.
+                </Txt>
+              </View>
+              <Switch
+                value={prefs.askStillHere}
+                onValueChange={(v) => setPref("askStillHere", v)}
+                trackColor={{ true: theme.accent }}
+                accessibilityLabel="Ask if cameras are still there"
+              />
+            </View>
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
               NAVIGATION
             </Txt>
             <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
@@ -165,6 +234,94 @@ export function SettingsSheet({
                 trackColor={{ true: theme.accent }}
                 accessibilityLabel="Voice guidance"
               />
+            </View>
+            <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Drive mode alerts{pro.isPro ? "" : " · Pro"}
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  Warns about plate readers, speed and red-light cameras and police ahead, even without a route.
+                </Txt>
+              </View>
+              <Switch
+                value={pro.isPro && prefs.driveAlerts}
+                onValueChange={(v) => (pro.isPro ? setPref("driveAlerts", v) : onOpenPro())}
+                trackColor={{ true: theme.accent }}
+                accessibilityLabel="Drive mode alerts"
+              />
+            </View>
+            <View style={[styles.card, styles.row, { backgroundColor: theme.surface }]}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Speeding warning{pro.isPro ? "" : " · Pro"}
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  A spoken reminder when you're 5+ mph over the limit while navigating. The speed limit sign is free.
+                </Txt>
+              </View>
+              <Switch
+                value={pro.isPro && prefs.speedWarn}
+                onValueChange={(v) => (pro.isPro ? setPref("speedWarn", v) : onOpenPro())}
+                trackColor={{ true: theme.accent }}
+                accessibilityLabel="Speeding warning"
+              />
+            </View>
+            <Pressable
+              onPress={proOnly(onOpenPrivacyReport)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.card, styles.row, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="semibold" style={{ fontSize: 16, color: theme.text }}>
+                  Your privacy report{pro.isPro ? "" : " · Pro"}
+                </Txt>
+                <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                  Plate readers you passed and avoided each week. Kept only on this phone.
+                </Txt>
+              </View>
+              <Txt weight="bold" style={{ fontSize: 18, color: theme.textSecondary }}>
+                ›
+              </Txt>
+            </Pressable>
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Txt weight="semibold" style={[styles.label, { color: theme.textSecondary }]}>
+              MAP STYLE
+            </Txt>
+            <View style={[styles.card, { backgroundColor: theme.surface }]}>
+              <View style={[styles.segment, { backgroundColor: theme.subtle }]}>
+                {(
+                  [
+                    { id: "mutedStandard", label: "Clean" },
+                    { id: "standard", label: "Detailed" },
+                    { id: "satellite", label: "Satellite" },
+                    { id: "hybrid", label: "Hybrid" },
+                  ] as { id: MapStyle; label: string }[]
+                ).map((o) => {
+                  const on = (pro.isPro ? prefs.mapStyle : "mutedStandard") === o.id;
+                  return (
+                    <Pressable
+                      key={o.id}
+                      onPress={() => (o.id === "mutedStandard" || pro.isPro ? setPref("mapStyle", o.id) : onOpenPro())}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      style={[
+                        styles.segmentItem,
+                        on && { backgroundColor: theme.surface, shadowColor: theme.shadowColor, shadowOpacity: 0.12 },
+                      ]}
+                    >
+                      <Txt weight={on ? "bold" : "semibold"} style={{ fontSize: 13, color: on ? theme.text : theme.textSecondary }}>
+                        {o.label}
+                      </Txt>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
+                {pro.isPro ? "Choose how the map looks." : "Detailed, Satellite and Hybrid maps are part of Pro."}
+              </Txt>
             </View>
           </View>
 

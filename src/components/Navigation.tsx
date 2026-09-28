@@ -69,7 +69,18 @@ export function ManeuverIcon({ type, modifier, size = 44, color }: { type?: stri
 }
 
 /** Big next-turn card at the top of the screen. */
-export function NavBanner({ theme, update, rerouting }: { theme: T; update: NavUpdate | null; rerouting: boolean }) {
+export function NavBanner({
+  theme,
+  update,
+  rerouting,
+  showLanes = false,
+}: {
+  theme: T;
+  update: NavUpdate | null;
+  rerouting: boolean;
+  /** Pro: lane arrows before a turn. */
+  showLanes?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   const b = update?.banner;
   return (
@@ -98,6 +109,22 @@ export function NavBanner({ theme, update, rerouting }: { theme: T; update: NavU
               </Txt>
             </View>
           </View>
+          {showLanes && b?.lanes && b.lanes.length > 1 ? (
+            <View
+              style={[styles.lanes, { backgroundColor: "rgba(0,0,0,0.18)" }]}
+              accessibilityLabel={`Use ${b.lanes.filter((l) => l.active).length === 1 ? "the highlighted lane" : "the highlighted lanes"}`}
+            >
+              {b.lanes.map((l, i) => (
+                <View key={i} style={{ opacity: l.active ? 1 : 0.35 }}>
+                  <ManeuverIcon
+                    modifier={laneModifier(l.active && l.use ? l.use : l.dirs[0])}
+                    size={30}
+                    color={theme.onAccent}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
           {b?.then ? (
             <Txt style={{ color: theme.onAccent, opacity: 0.85, fontSize: 14 }} numberOfLines={1}>
               Then {b.then}
@@ -106,6 +133,22 @@ export function NavBanner({ theme, update, rerouting }: { theme: T; update: NavU
         </>
       )}
     </View>
+  );
+}
+
+/** Mapbox lane directions ("straight", "slight right", "uturn"…) as ManeuverIcon modifiers. */
+function laneModifier(d?: string) {
+  if (!d || d === "none") return "straight";
+  return d;
+}
+
+export function ShareIcon({ color, size = 22 }: { color: string; size?: number }) {
+  const c = { stroke: color, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" };
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M12 15V3.5M7.5 8L12 3.5 16.5 8" {...c} />
+      <Path d="M8 11H6.5A1.5 1.5 0 0 0 5 12.5v7A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-7a1.5 1.5 0 0 0-1.5-1.5H16" {...c} />
+    </Svg>
   );
 }
 
@@ -133,11 +176,14 @@ export function NavPanel({
   onToggleMute,
   onEnd,
   onLayoutHeight,
+  onShare,
 }: {
   theme: T;
   update: NavUpdate | null;
   route: RouteOption | null;
   muted: boolean;
+  /** Share your arrival time with someone. */
+  onShare?: () => void;
   /** Voice is a Pro feature: show a "PRO" tag and open the upgrade screen on tap. */
   locked?: boolean;
   onToggleMute: () => void;
@@ -249,6 +295,16 @@ export function NavPanel({
                 : "Getting your location…"}
             </Txt>
           </Pressable>
+          {onShare ? (
+            <Pressable
+              onPress={onShare}
+              accessibilityRole="button"
+              accessibilityLabel="Share your arrival time"
+              style={({ pressed }) => [styles.round, { backgroundColor: theme.subtle, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <ShareIcon color={theme.text} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={onEnd}
             accessibilityRole="button"
@@ -301,6 +357,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   bannerRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  lanes: { flexDirection: "row", alignSelf: "flex-start", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   panel: {
     position: "absolute",
     left: 0,
@@ -316,7 +373,7 @@ const styles = StyleSheet.create({
   barRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18 },
   proTag: { position: "absolute", top: -4, right: -6, paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6 },
   round: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-  end: { height: 48, paddingHorizontal: 22, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  end: { height: 48, paddingHorizontal: 18, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   recenter: {
     position: "absolute",
     alignSelf: "center",

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { ActionSheetIOS, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatDuration } from "../lib/directions";
-import type { SavedPlace, SavedPlaces } from "../lib/savedPlaces";
+import type { Favorite, SavedPlace, SavedPlaces } from "../lib/savedPlaces";
 import type { Theme } from "../theme";
-import { ClockIcon, CloseIcon, HomeIcon, WorkIcon } from "./Icons";
+import { ClockIcon, CloseIcon, HomeIcon, PinIcon, PlusIcon, WorkIcon } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -21,6 +21,8 @@ export function WhereToSheet({
   onClearSlot,
   onRemoveRecent,
   onLayoutHeight,
+  commute = null,
+  favorites = null,
 }: {
   theme: T;
   places: SavedPlaces;
@@ -32,6 +34,20 @@ export function WhereToSheet({
   onClearSlot: (slot: Slot) => void;
   onRemoveRecent: (id: string) => void;
   onLayoutHeight: (h: number) => void;
+  /** Pro commute watch (shown when Home and Work are set). */
+  commute?: {
+    locked: boolean;
+    status: { cameras: number; newCameras: number; minutes: number } | null;
+    onPress: () => void;
+  } | null;
+  /** Pro saved places ("Gym", "Mom's house"). */
+  favorites?: {
+    locked: boolean;
+    canAdd: boolean;
+    onAdd: () => void;
+    onRename: (f: Favorite) => void;
+    onRemove: (f: Favorite) => void;
+  } | null;
 }) {
   const insets = useSafeAreaInsets();
   // Show the 2 latest; "Show all" opens the full list (up to 10) in a scrolling area.
@@ -108,6 +124,105 @@ export function WhereToSheet({
         ) : null}
       </View>
       <View style={styles.tiles}>{(["home", "work"] as const).map(tile)}</View>
+      {favorites ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginHorizontal: -20, flexGrow: 0 }}
+          contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {favorites.locked
+            ? null
+            : places.favorites.map((f) => (
+                <Pressable
+                  key={f.id}
+                  onPress={() => onGo(f)}
+                  onLongPress={() =>
+                    ActionSheetIOS.showActionSheetWithOptions(
+                      {
+                        title: f.label,
+                        message: f.name,
+                        options: ["Rename", "Remove", "Cancel"],
+                        destructiveButtonIndex: 1,
+                        cancelButtonIndex: 2,
+                        userInterfaceStyle: theme.isDark ? "dark" : "light",
+                      },
+                      (i) => {
+                        if (i === 0) favorites.onRename(f);
+                        if (i === 1) favorites.onRemove(f);
+                      }
+                    )
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`${f.label}, saved place`}
+                  accessibilityHint="Shows routes. Long-press to rename or remove."
+                  style={({ pressed }) => [styles.fav, { backgroundColor: theme.subtle, opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <PinIcon size={15} color={theme.accentIcon} />
+                  <Txt weight="semibold" numberOfLines={1} style={{ fontSize: 14, color: theme.text, maxWidth: 140 }}>
+                    {f.label}
+                  </Txt>
+                </Pressable>
+              ))}
+          {favorites.canAdd || favorites.locked ? (
+            <Pressable
+              onPress={favorites.onAdd}
+              accessibilityRole="button"
+              accessibilityLabel={favorites.locked ? "Save more places (Pro)" : "Save a place"}
+              style={({ pressed }) => [
+                styles.fav,
+                { borderWidth: 1.5, borderColor: theme.outline, borderStyle: "dashed", opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <PlusIcon size={15} color={theme.text} />
+              <Txt weight="semibold" style={{ fontSize: 14, color: theme.text }}>
+                {favorites.locked || places.favorites.length === 0 ? "Save a place" : "Add"}
+              </Txt>
+              {favorites.locked ? (
+                <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
+                  <Txt weight="bold" style={{ fontSize: 9, color: theme.onAccent }}>
+                    PRO
+                  </Txt>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+        </ScrollView>
+      ) : null}
+      {commute ? (
+        <Pressable
+          onPress={commute.onPress}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.commute, { backgroundColor: theme.subtle, opacity: pressed ? 0.75 : 1 }]}
+        >
+          <View style={{ flex: 1, gap: 1 }}>
+            <Txt weight="semibold" style={{ fontSize: 14, color: theme.text }}>
+              Commute watch
+            </Txt>
+            <Txt style={{ fontSize: 13, color: theme.textSecondary }} numberOfLines={1}>
+              {commute.locked
+                ? "Get told when new plate readers show up on your commute"
+                : commute.status
+                  ? `${commute.status.cameras} plate ${commute.status.cameras === 1 ? "reader" : "readers"} Home → Work · ${commute.status.minutes} min`
+                  : "Checking your Home → Work route…"}
+            </Txt>
+          </View>
+          {commute.locked ? (
+            <View style={[styles.proTag, { backgroundColor: theme.accent }]}>
+              <Txt weight="bold" style={{ fontSize: 10, color: theme.onAccent }}>
+                PRO
+              </Txt>
+            </View>
+          ) : commute.status && commute.status.newCameras > 0 ? (
+            <View style={[styles.proTag, { backgroundColor: theme.badBg }]}>
+              <Txt weight="bold" style={{ fontSize: 12, color: theme.badText }}>
+                {commute.status.newCameras} new
+              </Txt>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
       <ScrollView style={{ maxHeight: showAll ? 300 : undefined }} contentContainerStyle={{ gap: 14 }} scrollEnabled={showAll}>
       {shown.map((r) => (
         <Pressable
@@ -188,6 +303,9 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: 10 },
   tile: { flex: 1, padding: 14, borderRadius: 16, gap: 6 },
   recent: { flexDirection: "row", alignItems: "center", gap: 12 },
+  commute: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
+  proTag: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7 },
+  fav: { flexDirection: "row", alignItems: "center", gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 18 },
   removeBtn: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   recentIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
 });

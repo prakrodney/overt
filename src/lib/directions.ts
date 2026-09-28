@@ -17,8 +17,11 @@ export type NavStep = {
   /** Spoken while driving this step; `before` = metres before the step's end. */
   voice: { before: number; text: string }[];
   /** Banner shown while driving this step, describing the maneuver at its end. */
-  banner: { before: number; text: string; type?: string; modifier?: string; then?: string }[];
+  banner: { before: number; text: string; type?: string; modifier?: string; then?: string; lanes?: Lane[] }[];
 };
+
+/** One lane at a junction: which ways it goes, and whether it's a lane you can use. */
+export type Lane = { dirs: string[]; active: boolean; use?: string };
 
 export type RouteOption = {
   id: string;
@@ -28,6 +31,12 @@ export type RouteOption = {
   hasToll: boolean;
   summary: string;
   steps: NavStep[];
+  /** Posted speed limit (mph) for each stretch between two points of `coords`; null = unknown. */
+  maxspeedMph: (number | null)[];
+  /** Number of legs (1 + stops). */
+  legs: number;
+  /** Where Mapbox put each stop on the road (same order as the stops asked for). */
+  stopPoints: LatLng[];
 };
 
 let tokenPromise: Promise<string> | null = null;
@@ -55,15 +64,21 @@ export async function fetchRoutes(
   to: LatLng,
   opts: {
     avoidTolls?: boolean;
+    /** Stay off freeways and other motorways. */
+    avoidHighways?: boolean;
     signal?: AbortSignal;
     /** Road points to route around (Mapbox allows at most 50). */
     avoidPoints?: LatLng[];
     alternatives?: boolean;
+    /** Stops to make on the way, in order. */
+    stops?: LatLng[];
+    /** Plan for leaving at this time (ms since 1970) instead of now; uses typical traffic then. */
+    departAt?: number | null;
   } = {}
 ): Promise<RouteOption[]> {
   const token = await getMapboxToken();
   if (!token.startsWith("pk.")) throw new Error("Couldn't load the Mapbox settings. Check your connection and try again.");
-  const coords = `${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
+  const coords = [from, ...(opts.stops ?? []), to].map((p) => `${p.longitude},${p.latitude}`).join(";");
   const params = new URLSearchParams({
     alternatives: opts.alternatives === false ? "false" : "true",
     geometries: "geojson",
@@ -72,10 +87,15 @@ export async function fetchRoutes(
     voice_instructions: "true",
     banner_instructions: "true",
     voice_units: "imperial",
+    annotations: "maxspeed",
     access_token: token,
   });
+  if (opts.departAt && opts.departAt > Date.now() + 60_000) {
+    params.set("depart_at", new Date(opts.departAt).toISOString().slice(0, 19) + "Z");
+  }
   const exclude: string[] = [];
   if (opts.avoidTolls) exclude.push("toll");
+  if (opts.avoidHighways) exclude.push("motorway");
   for (const p of (opts.avoidPoints ?? []).slice(0, 50)) {
     exclude.push(`point(${p.longitude.toFixed(6)} ${p.latitude.toFixed(6)})`);
   }
@@ -89,6 +109,8 @@ export async function fetchRoutes(
     if (json.code === "NoRoute") throw new Error("No driving route found to this place.");
     throw new Error(json.message || `Directions failed (${res.status})`);
   }
+  const snapped = ((json.waypoints ?? []) as any[]).map((w) => ({ latitude: w.location[1], longitude: w.location[0] }));
+  const stopPoints = snapped.slice(1, -1);
   return (json.routes as any[]).slice(0, 3).map((r, i) => ({
     id: `r${i}`,
     coords: (r.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({
@@ -103,6 +125,15 @@ export async function fetchRoutes(
       )
     ),
     summary: (r.legs as any[]).map((l) => l.summary).filter(Boolean).join(", "),
+    legs: (r.legs as any[]).length,
+    stopPoints,
+    maxspeedMph: (r.legs as any[]).flatMap((leg) =>
+      ((leg.annotation?.maxspeed ?? []) as any[]).map((m) =>
+        m && typeof m.speed === "number"
+          ? Math.round(m.unit === "mph" ? m.speed : m.speed / 1.609344 / 5) * (m.unit === "mph" ? 1 : 5)
+          : null
+      )
+    ),
     steps: (r.legs as any[]).flatMap((leg) =>
       (leg.steps as any[]).map(
         (st): NavStep => ({
@@ -128,6 +159,9 @@ export async function fetchRoutes(
             type: b.primary?.type,
             modifier: b.primary?.modifier,
             then: b.secondary?.text,
+            lanes: ((b.sub?.components ?? []) as any[])
+              .filter((c) => c.type === "lane")
+              .map((c): Lane => ({ dirs: c.directions ?? [], active: !!c.active, use: c.active_direction })),
           })),
         })
       )

@@ -35,6 +35,10 @@ const light = {
   speedCone: "rgba(226,132,0,0.30)",
   speedConeStroke: "rgba(226,132,0,0.60)",
   speedClusterFill: "rgba(214,120,0,0.9)",
+  // Red-light cameras: magenta, distinct from ALPR red cones and amber speed cameras.
+  redLightFill: "#B0186E",
+  redLightGlyph: "#FFFFFF",
+  redLightClusterFill: "rgba(176,24,110,0.88)",
   // Live road alerts
   policeFill: "#2458E6",
   crashFill: "#D93025",
@@ -91,6 +95,9 @@ const dark: typeof light = {
   speedCone: "rgba(245,165,36,0.32)",
   speedConeStroke: "rgba(245,165,36,0.65)",
   speedClusterFill: "rgba(245,165,36,0.9)",
+  redLightFill: "#F06BB5",
+  redLightGlyph: "#1B1D21",
+  redLightClusterFill: "rgba(240,107,181,0.9)",
   policeFill: "#5B86FF",
   crashFill: "#FF6B5E",
   hazardFill: "#FFD23F",

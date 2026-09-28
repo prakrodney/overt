@@ -5,14 +5,18 @@ import * as SecureStore from "expo-secure-store";
 import type { Place } from "./geocode";
 
 export type SavedPlace = Pick<Place, "id" | "name" | "subtitle" | "lat" | "lon">;
-export type SavedPlaces = { home: SavedPlace | null; work: SavedPlace | null; recents: SavedPlace[] };
+/** A Pro saved place with your own name for it ("Gym", "Mom's house"). */
+export type Favorite = SavedPlace & { label: string };
+export type SavedPlaces = { home: SavedPlace | null; work: SavedPlace | null; recents: SavedPlace[]; favorites: Favorite[] };
 
 const KEY = "overt.places.v1"; // Home / Work
 const RECENTS_KEY = "overt.recents.v1"; // compact list, kept separate (Keychain values should stay under ~2 KB)
+const FAVS_KEY = "overt.favorites.v1"; // compact list, separate for the same reason
 const INTRO_KEY = "overt.introSeen.v1";
 const MAX_RECENTS = 10;
+export const MAX_FAVORITES = 8;
 
-export const EMPTY_PLACES: SavedPlaces = { home: null, work: null, recents: [] };
+export const EMPTY_PLACES: SavedPlaces = { home: null, work: null, recents: [], favorites: [] };
 
 const slim = (p: Place | SavedPlace): SavedPlace => ({
   id: p.id.slice(0, 32),
@@ -38,7 +42,18 @@ export async function loadSavedPlaces(): Promise<SavedPlaces> {
       : Array.isArray(v.recents)
         ? v.recents // older app versions kept recents with Home / Work
         : [];
-    return { home: v.home ?? null, work: v.work ?? null, recents };
+    const fraw = await SecureStore.getItemAsync(FAVS_KEY).catch(() => null);
+    const favorites: Favorite[] = fraw
+      ? (JSON.parse(fraw) as [string, string, string, number, number][]).map(([id, label, name, lat, lon]) => ({
+          id,
+          label,
+          name,
+          subtitle: "",
+          lat,
+          lon,
+        }))
+      : [];
+    return { home: v.home ?? null, work: v.work ?? null, recents, favorites };
   } catch {
     return EMPTY_PLACES;
   }
@@ -50,6 +65,10 @@ async function save(p: SavedPlaces) {
     await SecureStore.setItemAsync(
       RECENTS_KEY,
       JSON.stringify(p.recents.map((r) => [r.id, r.name, r.subtitle, r.lat, r.lon]))
+    );
+    await SecureStore.setItemAsync(
+      FAVS_KEY,
+      JSON.stringify(p.favorites.map((f) => [f.id, f.label, f.name, f.lat, f.lon]))
     );
   } catch {
     // Not fatal: the places just won't survive a restart.
@@ -83,6 +102,31 @@ export function removeRecent(p: SavedPlaces, id: string): SavedPlaces {
 /** Forget every recent destination (Home and Work stay). */
 export function clearRecents(p: SavedPlaces): SavedPlaces {
   const next = { ...p, recents: [] };
+  save(next);
+  return next;
+}
+
+/** Save a place under your own name (Pro). Replaces one with the same name or spot. */
+export function addFavorite(p: SavedPlaces, place: Place | SavedPlace, label: string): SavedPlaces {
+  const s = slim(place);
+  const f: Favorite = { ...s, id: s.id.slice(0, 24), name: s.name.slice(0, 40), subtitle: "", label: label.trim().slice(0, 24) || s.name.slice(0, 24) };
+  const rest = p.favorites.filter((x) => !near(x, s) && x.label.toLowerCase() !== f.label.toLowerCase());
+  const next = { ...p, favorites: [...rest, f].slice(-MAX_FAVORITES) };
+  save(next);
+  return next;
+}
+
+export function renameFavorite(p: SavedPlaces, id: string, label: string): SavedPlaces {
+  const next = {
+    ...p,
+    favorites: p.favorites.map((f) => (f.id === id ? { ...f, label: label.trim().slice(0, 24) || f.label } : f)),
+  };
+  save(next);
+  return next;
+}
+
+export function removeFavorite(p: SavedPlaces, id: string): SavedPlaces {
+  const next = { ...p, favorites: p.favorites.filter((f) => f.id !== id) };
   save(next);
   return next;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionSheetIOS, ActivityIndicator, Animated, Linking, PanResponder, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isSpeedCamera, type CameraPoint } from "../lib/cameras";
+import { isRedLight, isSpeedCamera, type CameraPoint } from "../lib/cameras";
 import { describeLocation } from "../lib/geocode";
 import { formatFacing, formatUpdated } from "../lib/geo";
 import { reportIssue, voteOnPoint } from "../lib/reports";
@@ -31,6 +31,7 @@ function speedLimit(raw: string | null | undefined) {
 
 function cameraType(p: CameraPoint) {
   if (isSpeedCamera(p)) return "Speed camera";
+  if (isRedLight(p)) return "Red-light camera";
   const maker = p.manufacturer && !/^unknown$/i.test(p.manufacturer) ? p.manufacturer : null;
   return maker ? `${maker} ALPR camera` : "ALPR camera";
 }
@@ -186,10 +187,10 @@ export function CameraSheet({
       <View style={styles.header}>
         <View style={{ flex: 1, gap: 8 }}>
           <Txt weight="semibold" style={[styles.overline, { color: theme.textSecondary }]}>
-            {isSpeedCamera(p) ? "ENFORCEMENT · SPEED" : "SURVEILLANCE · ALPR"}
+            {isRedLight(p) ? "ENFORCEMENT · RED LIGHT" : isSpeedCamera(p) ? "ENFORCEMENT · SPEED" : "SURVEILLANCE · ALPR"}
           </Txt>
           <Txt weight="bold" style={[styles.title, { color: theme.text }]}>
-            {isSpeedCamera(p) ? "Speed camera" : "Automated license plate reader"}
+            {isRedLight(p) ? "Red-light camera" : isSpeedCamera(p) ? "Speed camera" : "Automated license plate reader"}
           </Txt>
           <View style={[styles.badge, { backgroundColor: theme.badgeBg }]}>
             {verified ? <CheckIcon color={theme.badgeText} /> : <InfoIcon color={theme.badgeText} />}

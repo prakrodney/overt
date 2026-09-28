@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { listPendingReports, moderateReport, type ModerateAction, type PendingReport } from "../lib/admin";
 import { formatFacing, formatUpdated } from "../lib/geo";
 import { describeLocation } from "../lib/geocode";
+import { listDisputed, resolveDisputed, type Disputed } from "../lib/community";
 import type { Theme } from "../theme";
 import { CloseIcon, PinIcon } from "./Icons";
 import { Txt } from "./Txt";
@@ -132,6 +133,91 @@ function ReportCard({
   );
 }
 
+const KIND: Record<string, string> = { alpr: "Plate reader", speed_camera: "Speed camera", red_light: "Red-light camera" };
+
+/** A camera that drivers said is gone ("Still here?" answers). */
+function DisputedCard({
+  d,
+  theme,
+  busy,
+  onAct,
+  onShow,
+}: {
+  d: Disputed;
+  theme: T;
+  busy: boolean;
+  onAct: (d: Disputed, a: "keep" | "remove") => void;
+  onShow: (d: Disputed) => void;
+}) {
+  const [place, setPlace] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    describeLocation(d.lat, d.lon).then((s) => live && setPlace(s));
+    return () => {
+      live = false;
+    };
+  }, [d.lat, d.lon]);
+  return (
+    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Txt weight="bold" style={{ fontSize: 17, color: theme.text }}>
+            {KIND[d.category] ?? "Camera"} may be gone
+          </Txt>
+          <Txt style={{ fontSize: 13, color: theme.textSecondary }}>Last "gone" answer {formatUpdated(d.last_gone_at)}</Txt>
+        </View>
+        <Pressable
+          onPress={() => onShow(d)}
+          accessibilityRole="button"
+          accessibilityLabel="Show on map"
+          style={({ pressed }) => [styles.show, { backgroundColor: theme.subtle, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <PinIcon size={16} color={theme.accentIcon} />
+          <Txt weight="semibold" style={{ fontSize: 13, color: theme.text }}>
+            Map
+          </Txt>
+        </Pressable>
+      </View>
+      <View style={{ gap: 2 }}>
+        <Txt style={{ fontSize: 14, color: theme.textSecondary }}>{place ?? `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}`}</Txt>
+        <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
+          {d.gone_votes} said gone · {d.still_there_votes} said still there
+        </Txt>
+        <Txt style={{ fontSize: 14, color: theme.textSecondary }}>
+          {d.source === "osm" ? "OpenStreetMap camera" : "Community camera"}
+          {d.status === "active" ? " · still on the map" : " · already hidden by votes"}
+        </Txt>
+      </View>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        {[
+          <Pressable
+            key="keep"
+            disabled={busy}
+            onPress={() => onAct(d, "keep")}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.btn, { backgroundColor: theme.subtle, opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
+          >
+            <Txt weight="bold" style={{ fontSize: 15, color: theme.text }}>
+              Keep on map
+            </Txt>
+          </Pressable>,
+          <Pressable
+            key="remove"
+            disabled={busy}
+            onPress={() => onAct(d, "remove")}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.btn, { backgroundColor: theme.badBg, opacity: busy ? 0.5 : pressed ? 0.8 : 1 }]}
+          >
+            <Txt weight="bold" style={{ fontSize: 15, color: theme.badText }}>
+              Remove
+            </Txt>
+          </Pressable>,
+        ]}
+      </View>
+    </View>
+  );
+}
+
 /** Admin-only list of flagged reports (new cameras from new reporters, and issue reports). */
 export function ReviewScreen({
   visible,
@@ -148,6 +234,8 @@ export function ReviewScreen({
 }) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<PendingReport[] | null>(null);
+  const [disputed, setDisputed] = useState<Disputed[]>([]);
+  const [busyDisputed, setBusyDisputed] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -157,9 +245,10 @@ export function ReviewScreen({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const r = await listPendingReports();
+      const [r, d] = await Promise.all([listPendingReports(), listDisputed().catch(() => [] as Disputed[])]);
       setItems(r);
-      changedRef.current(r.length);
+      setDisputed(d);
+      changedRef.current(r.length + d.length);
     } catch (e: any) {
       setError(e?.message ?? "Couldn't load reports.");
     }
@@ -181,7 +270,7 @@ export function ReviewScreen({
           );
           return rest;
         });
-        onChanged(res.pending);
+        onChanged(res.pending + disputed.length);
       } catch (e: any) {
         Alert.alert("Couldn't save that", e?.message ?? "Try again.");
       } finally {
@@ -200,6 +289,29 @@ export function ReviewScreen({
     } else run();
   };
 
+  const actDisputed = (d: Disputed, action: "keep" | "remove") => {
+    const run = async () => {
+      setBusyDisputed(d.id);
+      try {
+        await resolveDisputed(d.id, action);
+        const rest = disputed.filter((x) => x.id !== d.id);
+        setDisputed(rest);
+        changedRef.current((items?.length ?? 0) + rest.length);
+      } catch (e: any) {
+        Alert.alert("Couldn't save that", e?.message ?? "Try again.");
+      } finally {
+        setBusyDisputed(null);
+      }
+    };
+    if (action === "remove") {
+      Alert.alert("Remove this camera?", "It will disappear from the map for everyone, even if OpenStreetMap still lists it.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: run },
+      ]);
+    } else run();
+  };
+  const total = items == null ? null : items.length + disputed.length;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: theme.mapFallback }}>
@@ -209,7 +321,7 @@ export function ReviewScreen({
               Review reports
             </Txt>
             <Txt style={{ fontSize: 13, color: theme.textSecondary }}>
-              {items == null ? "Loading…" : items.length === 0 ? "All caught up" : `${items.length} waiting`}
+              {total == null ? "Loading…" : total === 0 ? "All caught up" : `${total} waiting`}
             </Txt>
           </View>
           <Pressable
@@ -237,15 +349,35 @@ export function ReviewScreen({
         >
           {error ? <Txt style={{ color: theme.badText, fontSize: 15 }}>{error}</Txt> : null}
           {items == null && !error ? <ActivityIndicator color={theme.textSecondary} style={{ marginTop: 40 }} /> : null}
-          {items?.length === 0 ? (
+          {total === 0 ? (
             <View style={{ alignItems: "center", gap: 6, marginTop: 60 }}>
               <Txt weight="bold" style={{ fontSize: 18, color: theme.text }}>
                 Nothing to review
               </Txt>
               <Txt style={{ fontSize: 15, color: theme.textSecondary, textAlign: "center" }}>
-                New cameras from new reporters and "report an issue" flags show up here.
+                New cameras from new reporters, "report an issue" flags and cameras drivers say are gone show up here.
               </Txt>
             </View>
+          ) : null}
+          {disputed.length ? (
+            <Txt weight="semibold" style={{ fontSize: 12, letterSpacing: 0.6, color: theme.textSecondary, marginLeft: 4 }}>
+              DRIVERS SAY THESE ARE GONE
+            </Txt>
+          ) : null}
+          {disputed.map((d) => (
+            <DisputedCard
+              key={`d${d.id}`}
+              d={d}
+              theme={theme}
+              busy={busyDisputed === d.id}
+              onAct={actDisputed}
+              onShow={(x) => onShowOnMap(x.lat, x.lon)}
+            />
+          ))}
+          {disputed.length && items?.length ? (
+            <Txt weight="semibold" style={{ fontSize: 12, letterSpacing: 0.6, color: theme.textSecondary, marginLeft: 4 }}>
+              REPORTS
+            </Txt>
           ) : null}
           {items?.map((r) => (
             <ReportCard

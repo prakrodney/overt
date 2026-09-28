@@ -285,3 +285,15 @@ export function GearIcon({ size = 20, color }: { size?: number; color: string })
     </Svg>
   );
 }
+
+/** Traffic light glyph for red-light cameras. */
+export function TrafficLightGlyph({ size = 12, color }: { size?: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Rect x={7} y={2.5} width={10} height={19} rx={3.5} fill="none" stroke={color} strokeWidth={2.4} />
+      <Circle cx={12} cy={7.5} r={1.9} fill={color} />
+      <Circle cx={12} cy={12} r={1.9} fill={color} opacity={0.55} />
+      <Circle cx={12} cy={16.5} r={1.9} fill={color} opacity={0.55} />
+    </Svg>
+  );
+}

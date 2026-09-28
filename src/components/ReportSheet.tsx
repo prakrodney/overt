@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Theme } from "../theme";
-import { CameraGlyph, SpeedGlyph } from "./Icons";
+import { CameraGlyph, SpeedGlyph, TrafficLightGlyph } from "./Icons";
 import { Txt } from "./Txt";
 
 type T = Theme & { isDark: boolean };
@@ -31,14 +31,14 @@ export function ReportSheet({
   theme: T;
   busy: boolean;
   error: string | null;
-  onSubmit: (directionDeg: number | null, category: "alpr" | "speed_camera") => void;
+  onSubmit: (directionDeg: number | null, category: "alpr" | "speed_camera" | "red_light") => void;
   onCancel: () => void;
   /** Speed cameras are a Pro feature; free users report plate readers only. */
   allowSpeed?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [dir, setDir] = useState<number | null>(null);
-  const [kind, setKind] = useState<"alpr" | "speed_camera">("alpr");
+  const [kind, setKind] = useState<"alpr" | "speed_camera" | "red_light">("alpr");
 
   return (
     <View
@@ -71,6 +71,7 @@ export function ReportSheet({
             [
               { k: "alpr", label: "Plate reader (ALPR)" },
               { k: "speed_camera", label: "Speed camera" },
+              { k: "red_light", label: "Red-light camera" },
             ] as const
           )
             .filter((x) => allowSpeed || x.k === "alpr")
@@ -90,11 +91,20 @@ export function ReportSheet({
                     : { backgroundColor: theme.surface, borderColor: theme.outline },
                 ]}
               >
-                <View style={[styles.glyph, { backgroundColor: k === "alpr" ? theme.markerFill : theme.speedFill }]}>
+                <View
+                  style={[
+                    styles.glyph,
+                    { backgroundColor: k === "alpr" ? theme.markerFill : k === "red_light" ? theme.redLightFill : theme.speedFill },
+                  ]}
+                >
                   {k === "alpr" ? (
                     <CameraGlyph size={10} color={theme.markerGlyph} />
                   ) : (
-                    <SpeedGlyph size={12} color={theme.speedGlyph} />
+                    k === "red_light" ? (
+                      <TrafficLightGlyph size={12} color={theme.redLightGlyph} />
+                    ) : (
+                      <SpeedGlyph size={12} color={theme.speedGlyph} />
+                    )
                   )}
                 </View>
                 <Txt weight="semibold" style={{ color: on ? theme.badgeText : theme.text, fontSize: 15 }}>

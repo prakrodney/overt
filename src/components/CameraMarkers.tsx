@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { View } from "react-native";
 import { Marker, Polygon } from "react-native-maps";
-import { isSpeedCamera, type CameraCluster, type CameraPoint } from "../lib/cameras";
+import { isRedLight, isSpeedCamera, type CameraCluster, type CameraPoint } from "../lib/cameras";
 import { conePolygon, metersPerPoint } from "../lib/geo";
 import type { Theme } from "../theme";
-import { CameraGlyph, SpeedGlyph } from "./Icons";
+import { CameraGlyph, SpeedGlyph, TrafficLightGlyph } from "./Icons";
 
 type T = Theme & { isDark: boolean };
 
@@ -22,9 +22,10 @@ export const CameraMarker = memo(function CameraMarker({
 }) {
   const muted = point.confidence_level === "needs_confirmation";
   const speed = isSpeedCamera(point);
-  const fill = speed ? theme.speedFill : theme.markerFill;
-  const stroke = speed ? theme.speedStroke : theme.markerStroke;
-  const glyph = speed ? theme.speedGlyph : theme.markerGlyph;
+  const red = isRedLight(point);
+  const fill = red ? theme.redLightFill : speed ? theme.speedFill : theme.markerFill;
+  const stroke = speed || red ? theme.speedStroke : theme.markerStroke;
+  const glyph = red ? theme.redLightGlyph : speed ? theme.speedGlyph : theme.markerGlyph;
   const r = selected ? 16 : 11;
   const halo = selected ? 26 : 0;
   const box = Math.max(r, halo) * 2 + 4;
@@ -39,7 +40,7 @@ export const CameraMarker = memo(function CameraMarker({
       }}
       tracksViewChanges={false}
       zIndex={selected ? 1000 : 10}
-      accessibilityLabel={speed ? "Speed camera" : "Automated license plate reader"}
+      accessibilityLabel={red ? "Red-light camera" : speed ? "Speed camera" : "Automated license plate reader"}
     >
       <View style={{ width: box, height: box, alignItems: "center", justifyContent: "center" }}>
         {selected && (
@@ -60,7 +61,7 @@ export const CameraMarker = memo(function CameraMarker({
             borderRadius: r,
             backgroundColor: muted ? theme.markerMutedFill : fill,
             borderWidth: selected ? 3 : muted ? 1.5 : 2,
-            borderColor: muted ? (speed ? theme.speedFill : theme.markerMutedStroke) : stroke,
+            borderColor: muted ? (red ? theme.redLightFill : speed ? theme.speedFill : theme.markerMutedStroke) : stroke,
             borderStyle: muted ? "dashed" : "solid",
             alignItems: "center",
             justifyContent: "center",
@@ -70,7 +71,9 @@ export const CameraMarker = memo(function CameraMarker({
             shadowOffset: { width: 0, height: 1 },
           }}
         >
-          {speed ? (
+          {red ? (
+            <TrafficLightGlyph size={selected ? 18 : 13} color={muted ? theme.redLightFill : glyph} />
+          ) : speed ? (
             <SpeedGlyph size={selected ? 18 : 13} color={muted ? theme.speedFill : glyph} />
           ) : (
             <CameraGlyph size={selected ? 15 : 11} color={muted ? theme.markerMutedStroke : glyph} />
@@ -105,7 +108,7 @@ export const ClusterMarker = memo(function ClusterMarker({
       }}
       tracksViewChanges={false}
       zIndex={5}
-      accessibilityLabel={`${n} ${isSpeedCamera(cluster) ? "speed cameras" : "license plate readers"}. Tap to zoom in.`}
+      accessibilityLabel={`${n} ${isRedLight(cluster) ? "red-light cameras" : isSpeedCamera(cluster) ? "speed cameras" : "license plate readers"}. Tap to zoom in.`}
     >
       {/* Invisible padding keeps the tap target comfortable. */}
       <View style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
@@ -114,7 +117,11 @@ export const ClusterMarker = memo(function ClusterMarker({
             width: d,
             height: d,
             borderRadius: d / 2,
-            backgroundColor: isSpeedCamera(cluster) ? theme.speedClusterFill : theme.clusterFill,
+            backgroundColor: isRedLight(cluster)
+              ? theme.redLightClusterFill
+              : isSpeedCamera(cluster)
+                ? theme.speedClusterFill
+                : theme.clusterFill,
             borderWidth: 1.5,
             borderColor: theme.clusterStroke,
           }}

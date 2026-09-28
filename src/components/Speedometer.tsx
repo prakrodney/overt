@@ -71,8 +71,27 @@ export function useSpeed(enabled: boolean, onMove?: (fix: Fix) => void) {
   return mph;
 }
 
-/** Round speed readout (top-left, opposite the locate button). Shows while driving; hides after a minute stopped. */
-export function Speedometer({ theme, mph, top, bottom }: { theme: T; mph: number | null; top?: number; bottom?: number }) {
+/** How far over the limit counts as speeding (mph). */
+export const SPEEDING_MARGIN = 5;
+
+/**
+ * Round speed readout (top-left, opposite the locate button). Shows while driving; hides
+ * after a minute stopped. While navigating, a speed limit sign sits beside it and the
+ * dial turns red when you're 5+ mph over.
+ */
+export function Speedometer({
+  theme,
+  mph,
+  top,
+  bottom,
+  limit = null,
+}: {
+  theme: T;
+  mph: number | null;
+  top?: number;
+  bottom?: number;
+  limit?: number | null;
+}) {
   const [visible, setVisible] = useState(false);
   const lastMoving = useRef(0);
 
@@ -95,37 +114,59 @@ export function Speedometer({ theme, mph, top, bottom }: { theme: T; mph: number
     return () => clearInterval(t);
   }, [visible]);
 
-  if (!visible) return null;
+  if (!visible && limit == null) return null;
   const shown = mph == null ? "--" : String(Math.round(mph < 1 ? 0 : mph));
+  const speeding = limit != null && mph != null && mph >= limit + SPEEDING_MARGIN;
+  return (
+    <View style={[styles.wrap, bottom != null ? { bottom } : { top }]} pointerEvents="none">
+      {visible ? (
+        <View
+          accessibilityRole="text"
+          accessibilityLabel={mph == null ? "Speed unavailable" : `${shown} miles per hour${speeding ? ", over the speed limit" : ""}`}
+          style={[
+            styles.dial,
+            {
+              backgroundColor: speeding ? theme.crashFill : theme.control,
+              borderColor: speeding ? theme.crashFill : theme.accentIcon,
+              shadowColor: theme.shadowColor,
+              shadowOpacity: theme.isDark ? 0.4 : 0.14,
+            },
+          ]}
+        >
+          <Txt weight="extrabold" style={{ fontSize: shown.length > 2 ? 24 : 28, lineHeight: 30, color: speeding ? "#FFFFFF" : theme.text }}>
+            {shown}
+          </Txt>
+          <Txt weight="semibold" style={{ fontSize: 11, letterSpacing: 0.4, color: speeding ? "#FFFFFF" : theme.textSecondary }}>
+            MPH
+          </Txt>
+        </View>
+      ) : null}
+      {limit != null ? <SpeedLimitSign limit={limit} speeding={speeding} /> : null}
+    </View>
+  );
+}
+
+/** A US-style "SPEED LIMIT 45" sign. */
+export function SpeedLimitSign({ limit, speeding = false }: { limit: number; speeding?: boolean }) {
   return (
     <View
       accessibilityRole="text"
-      accessibilityLabel={mph == null ? "Speed unavailable" : `${shown} miles per hour`}
-      style={[
-        styles.dial,
-        {
-          ...(bottom != null ? { bottom } : { top }),
-          backgroundColor: theme.control,
-          borderColor: theme.accentIcon,
-          shadowColor: theme.shadowColor,
-          shadowOpacity: theme.isDark ? 0.4 : 0.14,
-        },
-      ]}
+      accessibilityLabel={`Speed limit ${limit}`}
+      style={[styles.sign, { borderColor: speeding ? "#D93025" : "#1B1D22" }]}
     >
-      <Txt weight="extrabold" style={{ fontSize: shown.length > 2 ? 24 : 28, lineHeight: 30, color: theme.text }}>
-        {shown}
+      <Txt weight="bold" style={{ fontSize: 8.5, lineHeight: 10, color: "#1B1D22", textAlign: "center", letterSpacing: 0.3 }}>
+        SPEED{"\n"}LIMIT
       </Txt>
-      <Txt weight="semibold" style={{ fontSize: 11, letterSpacing: 0.4, color: theme.textSecondary }}>
-        MPH
+      <Txt weight="extrabold" style={{ fontSize: 24, lineHeight: 27, color: speeding ? "#D93025" : "#1B1D22" }}>
+        {limit}
       </Txt>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: { position: "absolute", left: 16, flexDirection: "row", alignItems: "center", gap: 8 },
   dial: {
-    position: "absolute",
-    left: 16,
     width: 76,
     height: 76,
     borderRadius: 38,
@@ -134,5 +175,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 4 },
+  },
+  sign: {
+    width: 50,
+    height: 62,
+    borderRadius: 8,
+    borderWidth: 2.5,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
 });

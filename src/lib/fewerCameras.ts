@@ -44,8 +44,18 @@ export async function findFewerCamerasRoute(
   to: LatLng,
   baseRoutes: RouteOption[],
   baseCams: Cam[][],
-  opts: { avoidTolls?: boolean; signal?: AbortSignal } = {}
-): Promise<{ route: RouteOption; cameras: number; speedCameras: number } | null> {
+  opts: {
+    avoidTolls?: boolean;
+    avoidHighways?: boolean;
+    stops?: LatLng[];
+    departAt?: number | null;
+    signal?: AbortSignal;
+    /** Pro "avoid all plate readers": extra time allowed over the fastest route (seconds; Infinity = any). */
+    maxExtraSec?: number;
+    /** More attempts for the Pro mode. */
+    tries?: number;
+  } = {}
+): Promise<{ route: RouteOption; cameras: number; speedCameras: number; redLights: number } | null> {
   const baseMin = Math.min(...baseCams.map((c) => c.length));
   if (baseMin === 0) return null; // a normal route already passes none
 
@@ -67,12 +77,17 @@ export async function findFewerCamerasRoute(
   // Fastest route's cameras first, then the other routes'.
   baseRoutes.forEach((r, i) => addFrom(r, baseCams[i]));
 
-  let best: { route: RouteOption; cameras: number; speedCameras: number } | null = null;
-  for (let i = 0; i < MAX_TRIES; i++) {
+  const fastest = Math.min(...baseRoutes.map((r) => r.durationSec));
+  const limit = opts.maxExtraSec != null ? fastest + opts.maxExtraSec : fastest * 2 + 600;
+  let best: { route: RouteOption; cameras: number; speedCameras: number; redLights: number } | null = null;
+  for (let i = 0; i < (opts.tries ?? MAX_TRIES); i++) {
     let rs: RouteOption[];
     try {
       rs = await fetchRoutes(from, to, {
         avoidTolls: opts.avoidTolls,
+        avoidHighways: opts.avoidHighways,
+        stops: opts.stops,
+        departAt: opts.departAt,
         signal: opts.signal,
         alternatives: true,
         avoidPoints: [...avoid.values()],
@@ -82,25 +97,34 @@ export async function findFewerCamerasRoute(
       break; // e.g. no route possible without passing a camera near the destination
     }
     if (!rs.length) break;
-    // Detours avoid license plate readers only; speed cameras are just counted.
+    // Detours avoid license plate readers only; speed / red-light cameras are just counted.
     const all = await camerasAlongRoutesDetailed(rs, opts.signal);
     const cams = all.map((cs) => cs.filter((c) => !c.speed));
-    // Pick this try's route with the fewest cameras (ties: quickest).
+    // Pick this try's route with the fewest cameras (ties: quickest), within the time limit if possible.
     let j = 0;
-    for (let k = 1; k < rs.length; k++) {
-      if (cams[k].length < cams[j].length || (cams[k].length === cams[j].length && rs[k].durationSec < rs[j].durationSec)) j = k;
+    const better = (k: number, m: number) =>
+      cams[k].length < cams[m].length || (cams[k].length === cams[m].length && rs[k].durationSec < rs[m].durationSec);
+    for (let k = 1; k < rs.length; k++) if (better(k, j)) j = k;
+    let jOk = -1;
+    for (let k = 0; k < rs.length; k++) if (rs[k].durationSec <= limit && (jOk < 0 || better(k, jOk))) jOk = k;
+    if (jOk >= 0) {
+      const n = cams[jOk].length;
+      if (!best || n < best.cameras || (n === best.cameras && rs[jOk].durationSec < best.route.durationSec)) {
+        best = {
+          route: { ...rs[jOk], id: "fewest" },
+          cameras: n,
+          speedCameras: all[jOk].filter((c) => c.kind === "speed").length,
+          redLights: all[jOk].filter((c) => c.kind === "red_light").length,
+        };
+      }
     }
     const n = cams[j].length;
-    if (!best || n < best.cameras || (n === best.cameras && rs[j].durationSec < best.route.durationSec)) {
-      best = { route: { ...rs[j], id: "fewest" }, cameras: n, speedCameras: all[j].length - n };
-    }
     if (n === 0 || avoid.size >= MAX_AVOID) break;
     if (addFrom(rs[j], cams[j]) === 0) break; // nothing new to avoid
   }
 
-  // Only offer it if it actually beats every normal route, and isn't absurdly long.
-  const fastest = Math.min(...baseRoutes.map((r) => r.durationSec));
+  // Only offer it if it actually beats every normal route, and fits the time limit.
   if (!best || best.cameras >= baseMin) return null;
-  if (best.route.durationSec > fastest * 2 + 600) return null;
+  if (best.route.durationSec > limit) return null;
   return best;
 }

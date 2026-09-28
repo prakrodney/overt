@@ -2,7 +2,7 @@
 // Feed it GPS fixes; it says where you are along the route, what the next maneuver
 // is, what to say out loud, and whether you've left the route.
 
-import type { NavStep, RouteOption } from "./directions";
+import type { Lane, NavStep, RouteOption } from "./directions";
 
 type P = { lat: number; lon: number };
 
@@ -17,7 +17,9 @@ export type NavUpdate = {
   stepIndex: number;
   /** Metres to the next maneuver */
   toManeuver: number;
-  banner: { text: string; type?: string; modifier?: string; then?: string };
+  banner: { text: string; type?: string; modifier?: string; then?: string; lanes?: Lane[] };
+  /** Posted speed limit where you are (mph), when known. */
+  speedLimit: number | null;
   remainingM: number;
   remainingSec: number;
   offRoute: boolean;
@@ -146,7 +148,15 @@ export class NavEngine {
     return {
       stepIndex: k,
       toManeuver,
-      banner: { text: banner.text, type: banner.type, modifier: banner.modifier, then: banner.then },
+      banner: {
+        text: banner.text,
+        type: banner.type,
+        modifier: banner.modifier,
+        then: banner.then,
+        // Lanes only matter as you get close to the turn.
+        lanes: toManeuver < 800 ? (banner as { lanes?: Lane[] }).lanes : undefined,
+      },
+      speedLimit: this.route.maxspeedMph?.[Math.max(0, this.seg - 1)] ?? null,
       remainingM,
       remainingSec: this.route.durationSec * (remainingM / this.total),
       offRoute: this.offCount >= OFF_ROUTE_FIXES,

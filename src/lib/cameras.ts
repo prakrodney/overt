@@ -22,6 +22,9 @@ export type CameraPoint = {
 };
 
 export const isSpeedCamera = (p: { category?: string }) => p.category === "speed_camera";
+export const isRedLight = (p: { category?: string }) => p.category === "red_light";
+/** Speed or red-light camera (Pro layers). */
+export const isEnforcement = (p: { category?: string }) => isSpeedCamera(p) || isRedLight(p);
 
 export type CameraCluster = {
   id: string;

@@ -14,8 +14,12 @@ async function here() {
   return { lat: pos.coords.latitude, lon: pos.coords.longitude };
 }
 
-export async function voteOnPoint(pointId: number, verdict: "confirm" | "gone") {
-  const me = await here();
+/**
+ * `at` = where you were when you passed the camera (for the "Still here?" prompt,
+ * which is answered a few seconds later, after you've driven on).
+ */
+export async function voteOnPoint(pointId: number, verdict: "confirm" | "gone", at?: { lat: number; lon: number }) {
+  const me = at ?? (await here());
   return rpcAuthed<VoteResult>("vote_on_point", {
     p_point_id: pointId,
     p_verdict: verdict,
@@ -28,7 +32,7 @@ export async function reportNewPoint(
   lat: number,
   lon: number,
   directionDeg: number | null,
-  category: "alpr" | "speed_camera" = "alpr"
+  category: "alpr" | "speed_camera" | "red_light" = "alpr"
 ) {
   const me = await here();
   return rpcAuthed<{ point_id?: number; merged_into?: number; note?: string }>("report_new_point", {

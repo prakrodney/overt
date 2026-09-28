@@ -5,6 +5,7 @@
 > **Road alerts (migration 0015):** `public.road_alerts` (police/crash/hazard, 1 h expiry), RPCs `get_road_alerts` (anon), `report_road_alert`, `vote_road_alert`; cron `road-alerts-cleanup` deletes rows a day after expiry. Limits (0016): 3 alerts/hour and 10/day per account via `private.road_alert_log`; duplicate reports and "Still there" restart the hour (never stack), max 3 h per alert; 20 votes/hour.
 > **Live drivers:** built (0017/0018) then removed at the owner's request (0019 drops the table, functions and cron job). No avatar/character code remains.
 > **Free vs Pro (client-side for now):** `src/lib/pro.ts` (3-day trial stored on the phone, admins = Pro, `previewFree` toggle), `Paywall.tsx`. Gated: seeing police alerts (crash/object alerts and all reporting are free), speed cameras (map, route counts, spoken heads-up, reporting), voice. TODO at App Store build: StoreKit/RevenueCat subscription ($9.99/mo with 3-day intro offer), then enforce on the server (e.g. `get_road_alerts` / speed cameras check an entitlements table fed by RevenueCat webhooks).
+> **Pro extras:** red-light cameras (0020, category `red_light`, OSM `enforcement=traffic_signals` nodes; 5th element 2 in `get_cameras_in_boxes`), drive mode (`src/lib/driveAlerts.ts`), avoid-all routing (`findFewerCamerasRoute` `maxExtraSec`/`tries`), commute watch (`src/lib/commuteWatch.ts`), privacy report (`src/lib/privacyReport.ts`, on-phone), map styles (`src/lib/prefs.ts`). Not built yet: AI voice (needs a TTS account), CarPlay / lock-screen / push notifications / alternate app icons (need the native App Store build), camera 'who runs it / data sharing' details (needs a licensed data source).
 > **Admin review (migration 0013):** in-app Review screen for admins; the owner's phone becomes admin by typing a one-time code (hash in `private.admin_codes`, admins in `private.admins`) into the search bar. If his anonymous account is ever lost, generate a new code.
 
 _Last updated: 2026-09-26, ~09:25 UTC. Written for the next Claude session. Read this first,
@@ -158,6 +159,13 @@ screenshotted via a react-native-web harness in light and dark, real Mapbox and 
 were tested, and the reporting SQL was tested in a rolled-back transaction (distance limit,
 repeat vote, confirm → verified, 2× gone → archived, duplicate report merged, trust drops,
 moderation queue).
+
+**Added later (see README table, migrations 0021–0022):** speed limit sign + Pro speeding
+warning, "Still here?" prompts + admin review of disputed cameras, avoid highways, Pro leave
+later / stops / saved places / lane guidance / density map, share ETA, invite-a-friend Pro
+weeks (`reporters.pro_until`, read by `my_pro_grant` into `pro.ts` as kind "gift"), badges.
+Known limit: invites can be farmed with fresh anonymous accounts (slowed by 3 uses per code
+per day); fix properly with App Store accounts / offer codes. Pro gating is still client-side.
 
 ## 5. Report + confirm loop (status)
 
