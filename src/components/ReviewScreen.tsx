@@ -15,6 +15,7 @@ const TITLE: Record<string, string> = {
   new: "New camera reported",
   wrong_location: "Wrong location",
   details_wrong: "Details are wrong",
+  not_enforcement: "Not really a speed / red-light camera",
   other: "Other issue",
 };
 

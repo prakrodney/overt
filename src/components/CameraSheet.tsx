@@ -136,7 +136,7 @@ export function CameraSheet({
     }
   };
 
-  const flag = async (kind: "wrong_location" | "details_wrong") => {
+  const flag = async (kind: "wrong_location" | "details_wrong" | "not_enforcement") => {
     setBusy("issue");
     setMessage(null);
     try {
@@ -149,21 +149,28 @@ export function CameraSheet({
     }
   };
 
-  const openIssueMenu = () =>
+  // Speed / red-light cameras get an extra choice: OpenStreetMap often lists the cameras that
+  // only tell a traffic light a car is waiting as enforcement cameras.
+  const enforcementKind = p.category === "speed_camera" ? "speed camera" : p.category === "red_light" ? "red-light camera" : null;
+  const openIssueMenu = () => {
+    const options = ["It's gone", "It's in the wrong spot", "The details are wrong"];
+    if (enforcementKind) options.push(`It's not a ${enforcementKind}`);
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: "What's wrong?",
-        options: ["It's gone", "It's in the wrong spot", "The details are wrong", "Cancel"],
+        options: [...options, "Cancel"],
         destructiveButtonIndex: 0,
-        cancelButtonIndex: 3,
+        cancelButtonIndex: options.length,
         userInterfaceStyle: theme.isDark ? "dark" : "light",
       },
       (i) => {
         if (i === 0) vote("gone");
         else if (i === 1) flag("wrong_location");
         else if (i === 2) flag("details_wrong");
+        else if (i === 3 && enforcementKind) flag("not_enforcement");
       }
     );
+  };
   const coords = `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
   const osmUrl = p.osm_type && p.osm_id ? `https://www.openstreetmap.org/${p.osm_type}/${p.osm_id}` : null;
   const verified = p.confidence_level === "verified";

@@ -45,6 +45,6 @@ export async function reportNewPoint(
   });
 }
 
-export async function reportIssue(pointId: number, kind: "wrong_location" | "details_wrong" | "other", note?: string) {
+export async function reportIssue(pointId: number, kind: "wrong_location" | "details_wrong" | "not_enforcement" | "other", note?: string) {
   return rpcAuthed("report_issue", { p_point_id: pointId, p_kind: kind, p_note: note ?? null });
 }
