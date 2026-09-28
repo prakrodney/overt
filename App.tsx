@@ -157,6 +157,9 @@ function MapScreen() {
   const [routeCounts, setRouteCounts] = useState<number[] | null>(null);
   const [speedCounts, setSpeedCounts] = useState<number[] | null>(null);
   const [redCounts, setRedCounts] = useState<number[] | null>(null);
+  // Plate readers each route passes (same order as `routes`), shown glowing on the map.
+  const [routeCams, setRouteCams] = useState<Cam[][] | null>(null);
+  const [navCams, setNavCams] = useState<Cam[]>([]);
   const [countError, setCountError] = useState<string | null>(null);
   const [selectedRoute, setSelectedRoute] = useState(0);
   const [avoidTolls, setAvoidTolls] = useState(false);
@@ -539,6 +542,7 @@ function MapScreen() {
       setRouteLoading(true);
       setRouteError(null);
       setRouteCounts(null);
+      setRouteCams(null);
       setSpeedCounts(null);
       setRedCounts(null);
       setCountError(null);
@@ -575,7 +579,7 @@ function MapScreen() {
             const reds = all.map((x) => x.filter((c) => c.kind === "red_light").length);
             const counts = cams.map((x) => x.length);
             // Show the safest route first, then mixed, then unsafe (ties: quicker first).
-            const show = (rsX: RouteOption[], cX: number[], sX: number[], rX: number[]) => {
+            const show = (rsX: RouteOption[], cX: number[], sX: number[], rX: number[], camsX: Cam[][]) => {
               const order = rsX
                 .map((_, i) => i)
                 .sort((a, b) => cX[a] - cX[b] || rsX[a].durationSec - rsX[b].durationSec);
@@ -583,9 +587,10 @@ function MapScreen() {
               setRouteCounts(order.map((i) => cX[i]));
               setSpeedCounts(order.map((i) => sX[i]));
               setRedCounts(order.map((i) => rX[i]));
+              setRouteCams(order.map((i) => camsX[i]));
               setSelectedRoute(0);
             };
-            show(rs, counts, speeds, reds);
+            show(rs, counts, speeds, reds, cams);
             if (Math.min(...counts) === 0) return;
             setSearchingFewer(true);
             // Always look hard for a route with no plate readers (any extra time); it's listed first as Safest.
@@ -599,7 +604,13 @@ function MapScreen() {
               tries: 7,
             }).finally(() => setSearchingFewer(false));
             if (fewer && !ctrl.signal.aborted) {
-              show([...rs, fewer.route], [...counts, fewer.cameras], [...speeds, fewer.speedCameras], [...reds, fewer.redLights]);
+              show(
+                [...rs, fewer.route],
+                [...counts, fewer.cameras],
+                [...speeds, fewer.speedCameras],
+                [...reds, fewer.redLights],
+                [...cams, fewer.plateReaders]
+              );
             }
           })
           .catch((e) => e?.name !== "AbortError" && setCountError("Couldn't count cameras on these routes."));
@@ -620,6 +631,7 @@ function MapScreen() {
     setSettingSlot((s) => (s === "stop" ? null : s));
     setRoutes(null);
     setRouteCounts(null);
+    setRouteCams(null);
     setRouteError(null);
     setRouteLoading(false);
   }, []);
@@ -792,8 +804,10 @@ function MapScreen() {
   const loadRouteHazards = useCallback(
     (r: RouteOption) => {
       hazardsRef.current.cams = [];
+      setNavCams([]);
       camerasAlongRoutesDetailed([r])
         .then(([cams]) => {
+          setNavCams(cams.filter((c) => !c.speed));
           hazardsRef.current.cams = cams.filter((c) => !c.speed || proRef.current).map((c) => ({
             key: `cam${c.id}`,
             lat: c.lat,
@@ -1355,6 +1369,27 @@ function MapScreen() {
                 ];
               })
           : null}
+        {/* Plate readers on the chosen route glow, so you can see which ones it passes. */}
+        {(navActive ? navCams : inRouteMode ? routeCams?.[selectedRoute] ?? [] : []).map((c) => (
+          <Marker
+            key={`glow-${c.id}-${theme.isDark ? "d" : "l"}`}
+            coordinate={{ latitude: c.lat, longitude: c.lon }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+            zIndex={8}
+            onPress={() => {
+              const p = layer.points.find((x) => x.id === c.id);
+              if (p) selectPoint(p);
+            }}
+            accessibilityLabel="Plate reader on this route"
+          >
+            <View style={[styles.glowOuter, { backgroundColor: theme.routeCamGlow }]}>
+              <View style={[styles.glowRing, { borderColor: theme.routeCamRing }]}>
+                <View style={[styles.glowDot, { backgroundColor: theme.routeCamRing }]} />
+              </View>
+            </View>
+          </Marker>
+        ))}
         {searchPin ? (
           <Marker
             key={`dest-${theme.isDark ? "d" : "l"}`}
@@ -2015,6 +2050,9 @@ const styles = StyleSheet.create({
   },
   policeDot: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   proMini: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  glowOuter: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center" },
+  glowRing: { width: 34, height: 34, borderRadius: 17, borderWidth: 3, alignItems: "center", justifyContent: "center" },
+  glowDot: { width: 10, height: 10, borderRadius: 5 },
   stopPin: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   gear: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },

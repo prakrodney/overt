@@ -52,6 +52,8 @@ const light = {
   // Route preview (Route board)
   route: "#4A4FD6",
   routeToStop: "#0F9D84", // the stretch to your next stop while navigating
+  routeCamGlow: "rgba(255,59,48,0.28)", // halo around plate readers on the chosen route
+  routeCamRing: "#FF3B30",
   routeAlt: "#A3A8B4",
   routeCasing: "#FFFFFF",
   routeCardSelectedBg: "#F6F6FE",
@@ -110,6 +112,8 @@ const dark: typeof light = {
   shadowOpacity: 0.4,
   route: "#7B80FF",
   routeToStop: "#2CC9A8",
+  routeCamGlow: "rgba(255,90,78,0.35)",
+  routeCamRing: "#FF5A4E",
   routeAlt: "#5E636D",
   routeCasing: "#1B1D21",
   routeCardSelectedBg: "#25274A",

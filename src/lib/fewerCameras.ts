@@ -79,7 +79,7 @@ export async function findFewerCamerasRoute(
     /** More attempts for the Pro mode. */
     tries?: number;
   } = {}
-): Promise<{ route: RouteOption; cameras: number; speedCameras: number; redLights: number } | null> {
+): Promise<{ route: RouteOption; cameras: number; speedCameras: number; redLights: number; plateReaders: Cam[] } | null> {
   const baseMin = Math.min(...baseCams.map((c) => c.length));
   if (baseMin === 0) return null; // a normal route already passes none
 
@@ -104,7 +104,7 @@ export async function findFewerCamerasRoute(
 
   const fastest = Math.min(...baseRoutes.map((r) => r.durationSec));
   const limit = opts.maxExtraSec != null ? fastest + opts.maxExtraSec : fastest * 2 + 600;
-  let best: { route: RouteOption; cameras: number; speedCameras: number; redLights: number } | null = null;
+  let best: { route: RouteOption; cameras: number; speedCameras: number; redLights: number; plateReaders: Cam[] } | null = null;
   for (let i = 0; i < (opts.tries ?? MAX_TRIES); i++) {
     let rs: RouteOption[];
     try {
@@ -140,6 +140,7 @@ export async function findFewerCamerasRoute(
           cameras: n,
           speedCameras: all[jOk].filter((c) => c.kind === "speed").length,
           redLights: all[jOk].filter((c) => c.kind === "red_light").length,
+          plateReaders: cams[jOk],
         };
       }
     }
